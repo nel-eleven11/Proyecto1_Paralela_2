@@ -30,8 +30,8 @@ public:
 
 private:
     static constexpr float BASE_VOLUME = 1.0f;
-    static constexpr float THERMAL_EXPANSION_COEFF = 0.02f;   // Volume expansion per °C (increased)
-    static constexpr float COOLING_RATE = 1.5f;               // Newton's cooling coefficient (faster cooling)
+    static constexpr float THERMAL_EXPANSION_COEFF = 0.02f;   // Volume expansion per °C
+    static constexpr float COOLING_RATE = 2.0f;               // Newton's cooling coefficient (smooth transitions)
 };
 
 #endif

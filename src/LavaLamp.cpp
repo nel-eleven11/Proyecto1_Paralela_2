@@ -1,5 +1,6 @@
 #include "LavaLamp.h"
 #include <algorithm>
+#include <cmath>
 
 LavaLamp::LavaLamp(int w, int h)
     : width(w), height(h), hotTemp(100.0f), coldTemp(20.0f),
@@ -39,18 +40,19 @@ void LavaLamp::applyPhysics(Blob& blob, float dt) {
     // Buoyancy force proportional to temperature difference
     // Positive tempDiff (blob hotter than surroundings) → rise (negative y)
     // Negative tempDiff (blob cooler than surroundings) → fall (positive y)
-    const float buoyancyStrength = 400.0f;  // Increased for stronger effect
+    const float buoyancyStrength = 300.0f;
     float buoyancy = -tempDiff * buoyancyStrength;  // Negative because y increases downward
 
     // Apply forces: F = ma => a = F/m
     float acceleration = buoyancy / blob.mass;
 
-    // Add drag force (velocity dependent)
-    const float dragCoeff = 0.05f;
-    float drag = -dragCoeff * blob.velocity.y;
+    // Add quadratic drag for smoother deceleration (drag increases with velocity²)
+    const float dragCoeff = 0.15f;  // Increased drag
+    float drag = -dragCoeff * blob.velocity.y * std::abs(blob.velocity.y);
 
-    // Update velocity
-    blob.velocity.y += (acceleration + drag) * dt;
+    // Update velocity with damping factor for smoother motion
+    const float dampingFactor = 0.98f;  // Slight velocity reduction each frame
+    blob.velocity.y = (blob.velocity.y + (acceleration + drag) * dt) * dampingFactor;
 
     // Limit velocity
     const float maxVelocity = 150.0f;
