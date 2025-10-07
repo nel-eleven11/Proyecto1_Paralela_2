@@ -35,6 +35,7 @@ private:
 
     void spawnBlob();
     void applyPhysics(Blob& blob, float dt);
+    void handleCollisions();
 };
 
 #endif
