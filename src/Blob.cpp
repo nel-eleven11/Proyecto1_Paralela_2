@@ -13,6 +13,17 @@ void Blob::update(float dt, float ambientTemp) {
     float tempDiff = temperature - ambientTemp;
     temperature -= COOLING_RATE * tempDiff * dt;
 
+    // Add extra cooling effect to push below ambient at extremes
+    // At the top (cold), blobs cool extra; at bottom (hot), they heat extra
+    const float EXTRA_COOLING = 15.0f;
+    if (ambientTemp < 40.0f) {
+        // Cold zone - cool extra
+        temperature -= EXTRA_COOLING * dt;
+    } else if (ambientTemp > 80.0f) {
+        // Hot zone - heat extra
+        temperature += EXTRA_COOLING * dt;
+    }
+
     // Update volume based on temperature (thermal expansion)
     // V = V0 * (1 + α * ΔT)
     volume = BASE_VOLUME * (1.0f + THERMAL_EXPANSION_COEFF * temperature);

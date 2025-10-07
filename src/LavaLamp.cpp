@@ -2,8 +2,8 @@
 #include <algorithm>
 
 LavaLamp::LavaLamp(int w, int h)
-    : width(w), height(h), hotTemp(80.0f), coldTemp(20.0f),
-      mediumDensity(1.2f), spawnTimer(0.0f), rng(std::random_device{}()), xDist(50, w - 50) {
+    : width(w), height(h), hotTemp(100.0f), coldTemp(20.0f),
+      mediumDensity(1.0f), spawnTimer(0.0f), rng(std::random_device{}()), xDist(50, w - 50) {
 }
 
 float LavaLamp::getTemperatureAt(float y) const {
@@ -18,8 +18,8 @@ void LavaLamp::spawnBlob() {
     // Spawn at bottom with high temperature
     float x = xDist(rng);
     float y = height - 30.0f;
-    float initialTemp = hotTemp + (rand() % 10 - 5);  // Random variation
-    float mass = 1.0f + (rand() % 50) / 100.0f;      // Random mass
+    float initialTemp = hotTemp + (rand() % 20 - 10);  // Random variation
+    float mass = 0.5f + (rand() % 30) / 100.0f;        // Light mass: 0.5-0.8
 
     blobs.emplace_back(x, y, initialTemp, mass);
 }
@@ -31,14 +31,22 @@ void LavaLamp::applyPhysics(Blob& blob, float dt) {
     // Update blob temperature (Newton's cooling)
     blob.update(dt, ambientTemp);
 
-    // Calculate buoyancy force
-    float buoyancy = blob.getBuoyancyForce(mediumDensity);
+    // Calculate buoyancy based on temperature difference
+    // At bottom (hot): blob temp ≈ ambient temp → density difference drives upward
+    // At top (cold): blob temp ≈ ambient temp → density difference drives downward
+    float tempDiff = blob.temperature - ambientTemp;
+
+    // Buoyancy force proportional to temperature difference
+    // Positive tempDiff (blob hotter than surroundings) → rise (negative y)
+    // Negative tempDiff (blob cooler than surroundings) → fall (positive y)
+    const float buoyancyStrength = 400.0f;  // Increased for stronger effect
+    float buoyancy = -tempDiff * buoyancyStrength;  // Negative because y increases downward
 
     // Apply forces: F = ma => a = F/m
     float acceleration = buoyancy / blob.mass;
 
     // Add drag force (velocity dependent)
-    const float dragCoeff = 0.1f;
+    const float dragCoeff = 0.05f;
     float drag = -dragCoeff * blob.velocity.y;
 
     // Update velocity
