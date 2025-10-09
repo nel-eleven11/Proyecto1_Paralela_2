@@ -12,5 +12,5 @@ cmake --build build -j
 Correr con:
 
 ```bash
-./build/lavalamp -n 'number of molecules'
+./build/lavalamp -n 'number of molecules' -w 'width' -h 'height'
 ```

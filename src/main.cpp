@@ -7,35 +7,42 @@
 #include <getopt.h>
 
 int main(int argc, char* argv[]) {
-    const int WINDOW_WIDTH = 800;
-    const int WINDOW_HEIGHT = 600;
+    // Constants and default variables
     const int TARGET_FPS = 60;
     const float TARGET_FRAME_TIME = 1000.0f / TARGET_FPS;
-    int numBlobs = 0;
+    int numBlobs = 20;
+    int windowWidth = 800;  
+    int windowHeight = 600; 
 
-
-    // Process arguments from console
+    // Process command line arguments
     int opt;
-    while ((opt = getopt(argc, argv, "n:")) != -1) {
+    while ((opt = getopt(argc, argv, "n:w:h:")) != -1) {
         switch(opt) {
-            case 'n':  
-                numBlobs = std::stoi(optarg);  
+            case 'n':  // Number of blobs
+                numBlobs = std::stoi(optarg);
+                break;
+            case 'w':  // Window width
+                windowWidth = std::max(640, std::stoi(optarg)); 
+                break;
+            case 'h':  // Window height
+                windowHeight = std::max(480, std::stoi(optarg));
                 break;
             default:
-                std::cerr << "Usage: " << argv[0] << " [-n number_of_blobs]" << std::endl;
+                std::cerr << "Usage: " << argv[0] << " [-n number_of_blobs] [-w width] [-h height]" << std::endl;
                 return 1;
         }
     }
 
+
     // Initialize renderer
-    Renderer renderer(WINDOW_WIDTH, WINDOW_HEIGHT);
+    Renderer renderer(windowWidth, windowHeight);
     if (!renderer.init()) {
         std::cerr << "Failed to initialize renderer: " << SDL_GetError() << std::endl;
         return 1;
     }
 
     // Create lava lamp simulation
-    LavaLamp lamp(WINDOW_WIDTH, WINDOW_HEIGHT, numBlobs);
+    LavaLamp lamp(windowWidth, windowHeight, numBlobs);
 
     //Variables for FPS 
     double fps_accum = 0.0;
