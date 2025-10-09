@@ -4,12 +4,28 @@
 #include <iostream>
 #include <sstream>
 #include <cmath>
+#include <getopt.h>
 
 int main(int argc, char* argv[]) {
     const int WINDOW_WIDTH = 800;
     const int WINDOW_HEIGHT = 600;
     const int TARGET_FPS = 60;
     const float TARGET_FRAME_TIME = 1000.0f / TARGET_FPS;
+    int numBlobs = 0;
+
+
+    // Process arguments from console
+    int opt;
+    while ((opt = getopt(argc, argv, "n:")) != -1) {
+        switch(opt) {
+            case 'n':  
+                numBlobs = std::stoi(optarg);  
+                break;
+            default:
+                std::cerr << "Usage: " << argv[0] << " [-n number_of_blobs]" << std::endl;
+                return 1;
+        }
+    }
 
     // Initialize renderer
     Renderer renderer(WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -19,7 +35,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Create lava lamp simulation
-    LavaLamp lamp(WINDOW_WIDTH, WINDOW_HEIGHT);
+    LavaLamp lamp(WINDOW_WIDTH, WINDOW_HEIGHT, numBlobs);
 
     //Variables for FPS 
     double fps_accum = 0.0;

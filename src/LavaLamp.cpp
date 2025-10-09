@@ -2,9 +2,12 @@
 #include <algorithm>
 #include <cmath>
 
-LavaLamp::LavaLamp(int w, int h)
+LavaLamp::LavaLamp(int w, int h, int numBlobs)
     : width(w), height(h), hotTemp(100.0f), coldTemp(20.0f),
       mediumDensity(1.0f), spawnTimer(0.0f), rng(std::random_device{}()), xDist(50, w - 50) {
+    for (int i = 0; i < numBlobs; ++i) {
+        spawnBlob();
+    }
 }
 
 float LavaLamp::getTemperatureAt(float y) const {

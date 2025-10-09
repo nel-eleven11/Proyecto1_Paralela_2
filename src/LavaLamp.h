@@ -7,7 +7,7 @@
 
 class LavaLamp {
 public:
-    LavaLamp(int width, int height);
+    LavaLamp(int width, int height, int numBlobs);
 
     void update(float dt);
     const std::vector<Blob>& getBlobs() const { return blobs; }
@@ -28,7 +28,7 @@ private:
 
     float spawnTimer;
     static constexpr float SPAWN_INTERVAL = 2.0f;  // Spawn blob every 2 seconds
-    static constexpr int MAX_BLOBS = 20;
+    static constexpr int MAX_BLOBS = 20000000;
 
     std::mt19937 rng;
     std::uniform_real_distribution<float> xDist;
