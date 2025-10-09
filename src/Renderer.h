@@ -9,6 +9,10 @@ public:
     Renderer(int width, int height);
     ~Renderer();
 
+    SDL_Window* getSDLWindow() const { return window; }
+    int getWidth()  const { return width; }
+    int getHeight() const { return height; }
+
     bool init();
     void render(const LavaLamp& lamp);
     void clear();

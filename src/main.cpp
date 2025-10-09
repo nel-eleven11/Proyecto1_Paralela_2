@@ -2,6 +2,8 @@
 #include "Renderer.h"
 #include <SDL2/SDL.h>
 #include <iostream>
+#include <sstream>
+#include <cmath>
 
 int main(int argc, char* argv[]) {
     const int WINDOW_WIDTH = 800;
@@ -18,6 +20,11 @@ int main(int argc, char* argv[]) {
 
     // Create lava lamp simulation
     LavaLamp lamp(WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    //Variables for FPS 
+    double fps_accum = 0.0;
+    int    fps_frames = 0;
+    double fps_smoothed = 0.0;
 
     // Main loop
     Uint32 lastTime = SDL_GetTicks();
@@ -39,6 +46,32 @@ int main(int argc, char* argv[]) {
         renderer.clear();
         renderer.render(lamp);
         renderer.present();
+
+        // FPS calc every 1s
+        fps_accum += dt;
+        fps_frames++;
+
+        if (fps_accum >= 1.0) {
+            double fps_inst = fps_frames / fps_accum;
+            
+            fps_smoothed = (fps_smoothed == 0.0) ? fps_inst : (0.8 * fps_smoothed + 0.2 * fps_inst);
+
+            // In the screen
+            {
+                std::ostringstream title;
+                title << "Lava Lamp | " << renderer.getWidth() << "x" << renderer.getHeight()
+                    << " | FPS=" << static_cast<int>(std::round(fps_smoothed));
+                SDL_SetWindowTitle(/* SDL_Window* */ renderer.getSDLWindow(), title.str().c_str());
+            }
+
+            // In console
+            std::cout << "FPS= " << fps_smoothed << std::endl;
+
+            // Acumulators reset
+            fps_accum = 0.0;
+            fps_frames = 0;
+        }
+
 
         // Frame rate limiting
         Uint32 frameTime = SDL_GetTicks() - currentTime;
