@@ -16,6 +16,7 @@ public:
     float volume;           // Volume in arbitrary units
     float mass;             // Mass (constant)
     float radius;           // Visual radius
+    int   blobId = -1;      // cluster membership
 
     Molecule(float x, float y, float initialTemp, float mass);
 
@@ -29,7 +30,7 @@ public:
     float getBuoyancyForce(float mediumDensity) const;
 
 private:
-    static constexpr float BASE_VOLUME = 1.0f;
+    static constexpr float BASE_VOLUME = 0.35f;
     static constexpr float THERMAL_EXPANSION_COEFF = 0.02f;   // Volume expansion per °C
     static constexpr float COOLING_RATE = 2.0f;               // Newton's cooling coefficient (smooth transitions)
 };
