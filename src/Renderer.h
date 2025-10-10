@@ -20,8 +20,12 @@ public:
 
     bool isRunning() const { return running; }
     void handleEvents();
+    void setLightIntensity(float k) { lightIntensity = k; }
 
 private:
+
+    float lightIntensity = 0.6f; 
+
     SDL_Window* window;
     SDL_Renderer* renderer;
     int width, height;
@@ -29,6 +33,7 @@ private:
 
     void drawMolecule(const Molecule& molecule);
     void drawBackground(int height);
+    void drawLampLight();
 };
 
 #endif

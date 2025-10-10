@@ -44,19 +44,9 @@ void Renderer::handleEvents() {
 }
 
 void Renderer::drawBackground(int h) {
-    // Draw gradient background (dark blue at top, orange at bottom)
-    for (int y = 0; y < h; y++) {
-        float t = static_cast<float>(y) / h;
-
-        // Top: dark blue (20, 20, 60)
-        // Bottom: orange (200, 80, 20)
-        int r = static_cast<int>(20 + t * 180);
-        int g = static_cast<int>(20 + t * 60);
-        int b = static_cast<int>(60 - t * 40);
-
-        SDL_SetRenderDrawColor(renderer, r, g, b, 255);
-        SDL_RenderDrawLine(renderer, 0, y, width, y);
-    }
+    // Solid dark background; we keep it neutral and let the bottom light add warmth.
+    SDL_SetRenderDrawColor(renderer, 8, 10, 14, 255);
+    SDL_RenderClear(renderer);
 }
 
 void Renderer::drawMolecule(const Molecule& molecule) {
@@ -83,11 +73,38 @@ void Renderer::drawMolecule(const Molecule& molecule) {
     }
 }
 
+void Renderer::drawLampLight() {
+    // Simple vertical falloff from bottom to top.
+    // We draw horizontal lines additively; brighter near the bottom.
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_ADD);
+
+    const float k = std::max(0.0f, std::min(1.0f, lightIntensity)); // clamp
+    const int H = height;
+    const int W = width;
+
+    // Warm light color (bulb-like)
+    const Uint8 baseR = 255, baseG = 210, baseB = 160;
+
+    // Exponential falloff; tweak alpha by distance from the bottom
+    for (int y = H - 1; y >= 0; --y) {
+        float t = float(H - 1 - y) / float(H);       // 0 at bottom, 1 at top
+        float falloff = std::exp(-4.5f * t);         // steeper near bottom
+        float a = 32.0f * k * falloff;               // alpha contribution (0..~32)
+        Uint8 alpha = (Uint8)std::min(255.0f, a);
+
+        SDL_SetRenderDrawColor(renderer, baseR, baseG, baseB, alpha);
+        SDL_RenderDrawLine(renderer, 0, y, W, y);
+    }
+
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+}
+
 void Renderer::render(const LavaLamp& lamp) {
     drawBackground(lamp.getHeight());
+    drawLampLight(); 
 
-    for (const auto& molecule : lamp.getMolecules()) {
-        drawMolecule(molecule);
+    for (const auto& mol : lamp.getMolecules()) {  
+        drawMolecule(mol, lamp);                   
     }
 }
 
