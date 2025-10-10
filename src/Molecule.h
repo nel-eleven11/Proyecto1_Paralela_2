@@ -1,5 +1,5 @@
-#ifndef BLOB_H
-#define BLOB_H
+#ifndef MOLECULE_H
+#define MOLECULE_H
 
 struct Vec2 {
     float x, y;
@@ -8,18 +8,18 @@ struct Vec2 {
     Vec2 operator*(float scalar) const { return Vec2(x * scalar, y * scalar); }
 };
 
-class Blob {
+class Molecule {
 public:
     Vec2 position;
     Vec2 velocity;
-    float temperature;      // Current temperature in °C
+    float temperature;      // Current temperature in C
     float volume;           // Volume in arbitrary units
     float mass;             // Mass (constant)
     float radius;           // Visual radius
 
-    Blob(float x, float y, float initialTemp, float mass);
+    Molecule(float x, float y, float initialTemp, float mass);
 
-    // Update blob physics
+    // Update molecule physics
     void update(float dt, float ambientTemp);
 
     // Calculate density based on temperature and mass

@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
     // Constants and default variables
     const int TARGET_FPS = 60;
     const float TARGET_FRAME_TIME = 1000.0f / TARGET_FPS;
-    int numBlobs = 20;
+    int numMolecules = 20;
     int windowWidth = 800;  
     int windowHeight = 600; 
 
@@ -18,8 +18,8 @@ int main(int argc, char* argv[]) {
     int opt;
     while ((opt = getopt(argc, argv, "n:w:h:")) != -1) {
         switch(opt) {
-            case 'n':  // Number of blobs
-                numBlobs = std::stoi(optarg);
+            case 'n':  // Number of molecules
+                numMolecules = std::stoi(optarg);
                 break;
             case 'w':  // Window width
                 windowWidth = std::max(640, std::stoi(optarg)); 
@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
                 windowHeight = std::max(480, std::stoi(optarg));
                 break;
             default:
-                std::cerr << "Usage: " << argv[0] << " [-n number_of_blobs] [-w width] [-h height]" << std::endl;
+                std::cerr << "Usage: " << argv[0] << " [-n number_of_molecules] [-w width] [-h height]" << std::endl;
                 return 1;
         }
     }
@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Create lava lamp simulation
-    LavaLamp lamp(windowWidth, windowHeight, numBlobs);
+    LavaLamp lamp(windowWidth, windowHeight, numMolecules);
 
     //Variables for FPS 
     double fps_accum = 0.0;

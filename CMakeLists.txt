@@ -11,9 +11,11 @@ include_directories(${SDL2_INCLUDE_DIRS})
 # Add executable
 add_executable(lavalamp
     src/main.cpp
-    src/Blob.cpp
+    src/Molecule.cpp
     src/LavaLamp.cpp
     src/Renderer.cpp
+    src/Blob.cpp
+
 )
 
 target_link_libraries(lavalamp ${SDL2_LIBRARIES})

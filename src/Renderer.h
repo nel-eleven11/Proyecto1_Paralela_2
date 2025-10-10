@@ -27,7 +27,7 @@ private:
     int width, height;
     bool running;
 
-    void drawBlob(const Blob& blob);
+    void drawMolecule(const Molecule& molecule);
     void drawBackground(int height);
 };
 

@@ -1,16 +1,16 @@
 #ifndef LAVALAMP_H
 #define LAVALAMP_H
 
-#include "Blob.h"
+#include "Molecule.h"
 #include <vector>
 #include <random>
 
 class LavaLamp {
 public:
-    LavaLamp(int width, int height, int numBlobs);
+    LavaLamp(int width, int height, int numMolecules);
 
     void update(float dt);
-    const std::vector<Blob>& getBlobs() const { return blobs; }
+    const std::vector<Molecule>& getMolecules() const { return molecules; }
 
     int getWidth() const { return width; }
     int getHeight() const { return height; }
@@ -20,21 +20,21 @@ public:
 
 private:
     int width, height;
-    std::vector<Blob> blobs;
+    std::vector<Molecule> molecules;
 
     float hotTemp;          // Temperature at bottom
     float coldTemp;         // Temperature at top
     float mediumDensity;    // Density of the surrounding medium
 
     float spawnTimer;
-    static constexpr float SPAWN_INTERVAL = 2.0f;  // Spawn blob every 2 seconds
-    static constexpr int MAX_BLOBS = 20000000;
+    static constexpr float SPAWN_INTERVAL = 2.0f;  // Spawn molecule every 2 seconds
+    static constexpr int MAX_MOLECULES = 20000000;
 
     std::mt19937 rng;
     std::uniform_real_distribution<float> xDist;
 
-    void spawnBlob();
-    void applyPhysics(Blob& blob, float dt);
+    void spawnMolecule();
+    void applyPhysics(Molecule& molecule, float dt);
     void handleCollisions();
 };
 

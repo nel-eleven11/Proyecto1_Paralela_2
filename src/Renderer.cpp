@@ -59,25 +59,25 @@ void Renderer::drawBackground(int h) {
     }
 }
 
-void Renderer::drawBlob(const Blob& blob) {
+void Renderer::drawMolecule(const Molecule& molecule) {
     // Color based on temperature (cool = blue, hot = red)
-    float tempNorm = (blob.temperature - 20.0f) / 60.0f;  // Normalize 20-80°C to 0-1
+    float tempNorm = (molecule.temperature - 20.0f) / 60.0f;  // Normalize 20-80°C to 0-1
     tempNorm = std::max(0.0f, std::min(1.0f, tempNorm));
 
     int r = static_cast<int>(50 + tempNorm * 205);
     int g = static_cast<int>(150 - tempNorm * 100);
     int b = static_cast<int>(255 - tempNorm * 200);
 
-    // Draw blob as a filled circle (approximated with lines)
+    // Draw molecule as a filled circle (approximated with lines)
     SDL_SetRenderDrawColor(renderer, r, g, b, 220);
 
-    int radius = static_cast<int>(blob.radius);
+    int radius = static_cast<int>(molecule.radius);
     for (int y = -radius; y <= radius; y++) {
         for (int x = -radius; x <= radius; x++) {
             if (x*x + y*y <= radius*radius) {
                 SDL_RenderDrawPoint(renderer,
-                                   static_cast<int>(blob.position.x) + x,
-                                   static_cast<int>(blob.position.y) + y);
+                                   static_cast<int>(molecule.position.x) + x,
+                                   static_cast<int>(molecule.position.y) + y);
             }
         }
     }
@@ -86,8 +86,8 @@ void Renderer::drawBlob(const Blob& blob) {
 void Renderer::render(const LavaLamp& lamp) {
     drawBackground(lamp.getHeight());
 
-    for (const auto& blob : lamp.getBlobs()) {
-        drawBlob(blob);
+    for (const auto& molecule : lamp.getMolecules()) {
+        drawMolecule(molecule);
     }
 }
 
