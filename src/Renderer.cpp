@@ -1,5 +1,7 @@
 #include "Renderer.h"
 #include <cmath>
+#include "Palette.h"
+
 
 Renderer::Renderer(int w, int h)
     : window(nullptr), renderer(nullptr), width(w), height(h), running(true) {
@@ -49,25 +51,57 @@ void Renderer::drawBackground(int h) {
     SDL_RenderClear(renderer);
 }
 
-void Renderer::drawMolecule(const Molecule& molecule) {
-    // Color based on temperature (cool = blue, hot = red)
-    float tempNorm = (molecule.temperature - 20.0f) / 60.0f;  // Normalize 20-80°C to 0-1
-    tempNorm = std::max(0.0f, std::min(1.0f, tempNorm));
+void Renderer::drawMolecule(const Molecule& m, const LavaLamp& lamp) {
+    // Fetch its blob (cluster) to get centroid and approximate radius
+    const auto& blobs = lamp.getBlobs();
+    RGB baseColor{200,60,60};
+    float centerBoost = 1.0f; // intensity multiplier at core
 
-    int r = static_cast<int>(50 + tempNorm * 205);
-    int g = static_cast<int>(150 - tempNorm * 100);
-    int b = static_cast<int>(255 - tempNorm * 200);
+    Vec2 center = m.position;
+    float blobR = m.radius;
 
-    // Draw molecule as a filled circle (approximated with lines)
-    SDL_SetRenderDrawColor(renderer, r, g, b, 220);
+    auto it = blobs.find(m.blobId);
+    if (it != blobs.end()) {
+        center = it->second.center;
+        blobR  = std::max(m.radius, it->second.approxRadius);
+    }
 
-    int radius = static_cast<int>(molecule.radius);
+    // Distance to blob center
+    float dx = m.position.x - center.x;
+    float dy = m.position.y - center.y;
+    float d  = std::sqrt(dx*dx + dy*dy);
+    float R  = std::max(1.0f, blobR);
+
+    // Core intensity (stronger in the center)
+    float core = std::exp(-2.5f * (d/R) * (d/R)); // 1 at center, fades outward
+
+    // Rim highlight (thin bright edge near boundary)
+    float rim = 0.0f;
+    if (d > 0.7f*R) {
+        float t = (d - 0.7f*R) / (0.35f*R + 1e-3f);
+        rim = std::exp(-8.0f * t*t); // quick highlight near rim
+    }
+
+    // Pseudo-random pick in palette (stable per molecule)
+    float u = std::fmod( std::abs( (m.position.x*0.013f) + (m.position.y*0.007f) ), 1.0f );
+    baseColor = pickFromPalette(palette, u);
+
+    // Compose color with core brightness + rim highlight
+    float brightness = std::min(1.0f, 0.25f + 0.75f*core + 0.35f*rim);
+
+    Uint8 r = (Uint8)std::min(255.0f, baseColor.r * brightness);
+    Uint8 g = (Uint8)std::min(255.0f, baseColor.g * brightness);
+    Uint8 b = (Uint8)std::min(255.0f, baseColor.b * brightness);
+
+    SDL_SetRenderDrawColor(renderer, r, g, b, 230);
+
+    int radius = (int)std::max(1.0f, m.radius);
     for (int y = -radius; y <= radius; y++) {
         for (int x = -radius; x <= radius; x++) {
             if (x*x + y*y <= radius*radius) {
                 SDL_RenderDrawPoint(renderer,
-                                   static_cast<int>(molecule.position.x) + x,
-                                   static_cast<int>(molecule.position.y) + y);
+                    (int)std::round(m.position.x) + x,
+                    (int)std::round(m.position.y) + y);
             }
         }
     }

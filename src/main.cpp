@@ -13,25 +13,25 @@ int main(int argc, char* argv[]) {
     int numMolecules = 20;
     int windowWidth = 800;  
     int windowHeight = 600; 
+    float lightK = 0.6f;         // default lamp light intensity
+    std::string paletteName = "red";
 
     // Process command line arguments
     int opt;
-    while ((opt = getopt(argc, argv, "n:w:h:")) != -1) {
-        switch(opt) {
-            case 'n':  // Number of molecules
-                numMolecules = std::stoi(optarg);
-                break;
-            case 'w':  // Window width
-                windowWidth = std::max(640, std::stoi(optarg)); 
-                break;
-            case 'h':  // Window height
-                windowHeight = std::max(480, std::stoi(optarg));
-                break;
-            default:
-                std::cerr << "Usage: " << argv[0] << " [-n number_of_molecules] [-w width] [-h height]" << std::endl;
-                return 1;
-        }
+    while ((opt = getopt(argc, argv, "n:w:h:L:p:")) != -1) {
+    switch(opt) {
+        case 'n': numBlobs = std::stoi(optarg); break;
+        case 'w': windowWidth  = std::max(640, std::stoi(optarg)); break;
+        case 'h': windowHeight = std::max(480, std::stoi(optarg)); break;
+        case 'L': lightK = std::stof(optarg); break;      // 0..1 suggested
+        case 'p': paletteName = optarg; break;            // red, blue, orange, green, purple, rainbow
+        default:
+            std::cerr << "Usage: " << argv[0]
+                      << " [-n number_of_molecules] [-w width] [-h height]"
+                      << " [-L light_intensity_0_1] [-p palette]\n";
+            return 1;
     }
+}
 
 
     // Initialize renderer
@@ -40,6 +40,9 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to initialize renderer: " << SDL_GetError() << std::endl;
         return 1;
     }
+
+    renderer.setLightIntensity(std::max(0.0f, std::min(1.0f, lightK)));
+    renderer.setPalette(parsePalette(paletteName));
 
     // Create lava lamp simulation
     LavaLamp lamp(windowWidth, windowHeight, numMolecules);
