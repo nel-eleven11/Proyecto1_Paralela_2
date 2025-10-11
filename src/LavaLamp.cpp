@@ -4,7 +4,9 @@
 
 LavaLamp::LavaLamp(int w, int h, int numMolecules)
     : width(w), height(h), hotTemp(100.0f), coldTemp(20.0f),
-      mediumDensity(1.0f), spawnTimer(0.0f), rng(std::random_device{}()), xDist(50, w - 50) {
+      mediumDensity(1.0f), spawnTimer(0.0f),
+      rng(std::random_device{}()), xDist(50, w - 50) {
+    molecules.reserve(std::max(0, numMolecules));
     for (int i = 0; i < numMolecules; ++i) {
         spawnMolecule();
     }
@@ -17,143 +19,156 @@ float LavaLamp::getTemperatureAt(float y) const {
 }
 
 void LavaLamp::spawnMolecule() {
-    if (molecules.size() >= MAX_MOLECULES) return;
-
-    // Spawn at bottom with high temperature
     float x = xDist(rng);
     float y = height - 30.0f;
-    float initialTemp = hotTemp + (rand() % 20 - 10);  // Random variation
-    float mass = 0.5f + (rand() % 30) / 100.0f;        // Light mass: 0.5-0.8
+    float initialTemp = hotTemp + (rand() % 20 - 10);
+    float mass = 0.35f + (rand() % 30) / 200.0f; 
 
     molecules.emplace_back(x, y, initialTemp, mass);
+
+    // Create a new singleton blob for this molecule 
+    Molecule& m = molecules.back();
+    m.blobId = nextBlobId++;
+    Blob B; B.id = m.blobId; B.members.push_back(molecules.size()-1);
+    blobs[B.id] = std::move(B);
 }
 
-void LavaLamp::applyPhysics(Molecule& molecule, float dt) {
-    // Get ambient temperature at molecule's position
-    float ambientTemp = getTemperatureAt(molecule.position.y);
+void LavaLamp::applyPhysics(Molecule& m, float dt) {
+    float ambientTemp = getTemperatureAt(m.position.y);
+    m.update(dt, ambientTemp);
 
-    // Update molecule temperature (Newton's cooling)
-    molecule.update(dt, ambientTemp);
-
-    // Calculate buoyancy based on temperature difference
-    // At bottom (hot): molecule temp ≈ ambient temp → density difference drives upward
-    // At top (cold): molecule temp ≈ ambient temp → density difference drives downward
-    float tempDiff = molecule.temperature - ambientTemp;
-
-    // Buoyancy force proportional to temperature difference
-    // Positive tempDiff (molecule hotter than surroundings) → rise (negative y)
-    // Negative tempDiff (molecule cooler than surroundings) → fall (positive y)
+    float tempDiff = m.temperature - ambientTemp;
     const float buoyancyStrength = 300.0f;
-    float buoyancy = -tempDiff * buoyancyStrength;  // Negative because y increases downward
+    float buoyancy = -tempDiff * buoyancyStrength;
 
-    // Apply forces: F = ma => a = F/m
-    float acceleration = buoyancy / molecule.mass;
+    float acceleration = buoyancy / m.mass;
 
-    // Add quadratic drag for smoother deceleration (drag increases with velocity²)
-    const float dragCoeff = 0.15f;  // Increased drag
-    float drag = -dragCoeff * molecule.velocity.y * std::abs(molecule.velocity.y);
+    const float dragCoeff = 0.15f;
+    float drag = -dragCoeff * m.velocity.y * std::abs(m.velocity.y);
 
-    // Update velocity with damping factor for smoother motion
-    const float dampingFactor = 0.98f;  // Slight velocity reduction each frame
-    molecule.velocity.y = (molecule.velocity.y + (acceleration + drag) * dt) * dampingFactor;
+    const float dampingFactor = 0.985f;
+    m.velocity.y = (m.velocity.y + (acceleration + drag) * dt) * dampingFactor;
 
-    // Limit velocity
-    const float maxVelocity = 150.0f;
-    if (molecule.velocity.y > maxVelocity) molecule.velocity.y = maxVelocity;
-    if (molecule.velocity.y < -maxVelocity) molecule.velocity.y = -maxVelocity;
+    const float maxVelocity = 160.0f;
+    if (m.velocity.y > maxVelocity) m.velocity.y = maxVelocity;
+    if (m.velocity.y < -maxVelocity) m.velocity.y = -maxVelocity;
 
-    // Update position
-    molecule.position = molecule.position + molecule.velocity * dt;
+    m.position = m.position + m.velocity * dt;
 
-    // Boundary checks - bounce off top/bottom
-    if (molecule.position.y < molecule.radius) {
-        molecule.position.y = molecule.radius;
-        molecule.velocity.y *= -0.3f;  // Some damping
-    }
-    if (molecule.position.y > height - molecule.radius) {
-        molecule.position.y = height - molecule.radius;
-        molecule.velocity.y *= -0.3f;
-    }
+    handleWalls(m); 
 }
 
-void LavaLamp::handleCollisions() {
-    // Check all pairs of molecules for collision
+void LavaLamp::resolveMoleculeCollisions() {
+    const float restitution = 0.2f; // inelastic to promote merging
+    const float mergeSpeedThresh = 45.0f;
+
     for (size_t i = 0; i < molecules.size(); ++i) {
         for (size_t j = i + 1; j < molecules.size(); ++j) {
-            Molecule& b1 = molecules[i];
-            Molecule& b2 = molecules[j];
+            Molecule& a = molecules[i];
+            Molecule& b = molecules[j];
 
-            // Calculate distance between molecules
-            float dx = b2.position.x - b1.position.x;
-            float dy = b2.position.y - b1.position.y;
-            float distance = std::sqrt(dx * dx + dy * dy);
-            float minDistance = b1.radius + b2.radius;
+            float dx = b.position.x - a.position.x;
+            float dy = b.position.y - a.position.y;
+            float dist2 = dx*dx + dy*dy;
+            float minDist = a.radius + b.radius;
 
-            // Check if molecules are colliding
-            if (distance < minDistance && distance > 0.1f) {
-                // Normalize collision vector
-                float nx = dx / distance;
-                float ny = dy / distance;
+            if (dist2 <= (minDist*minDist) && dist2 > 1e-4f) {
+                float dist = std::sqrt(dist2);
+                float nx = dx / dist;
+                float ny = dy / dist;
 
-                // Relative velocity
-                float dvx = b2.velocity.x - b1.velocity.x;
-                float dvy = b2.velocity.y - b1.velocity.y;
-
-                // Relative velocity in collision normal direction
+                float dvx = b.velocity.x - a.velocity.x;
+                float dvy = b.velocity.y - a.velocity.y;
                 float dvn = dvx * nx + dvy * ny;
 
-                // Do not resolve if velocities are separating
-                if (dvn < 0) continue;
+                // Separate slightly to avoid sinking
+                float overlap = (minDist - dist);
+                float totalMass = a.mass + b.mass;
+                a.position.x -= nx * overlap * (b.mass / totalMass);
+                a.position.y -= ny * overlap * (b.mass / totalMass);
+                b.position.x += nx * overlap * (a.mass / totalMass);
+                b.position.y += ny * overlap * (a.mass / totalMass);
 
-                // Calculate impulse scalar (elastic collision with restitution)
-                const float restitution = 0.8f;  // Bounciness factor
-                float impulse = -(1.0f + restitution) * dvn / (1.0f / b1.mass + 1.0f / b2.mass);
+                if (dvn > 0.0f) continue; // already separating
 
-                // Apply impulse to velocities (conservation of momentum)
-                b1.velocity.x -= impulse * nx / b1.mass;
-                b1.velocity.y -= impulse * ny / b1.mass;
-                b2.velocity.x += impulse * nx / b2.mass;
-                b2.velocity.y += impulse * ny / b2.mass;
+                // Inelastic impulse
+                float impulse = -(1.0f + restitution) * dvn / (1.0f / a.mass + 1.0f / b.mass);
+                a.velocity.x -= impulse * nx / a.mass;
+                a.velocity.y -= impulse * ny / a.mass;
+                b.velocity.x += impulse * nx / b.mass;
+                b.velocity.y += impulse * ny / b.mass;
 
-                // Separate overlapping molecules
-                float overlap = minDistance - distance;
-                float separationRatio = overlap / (b1.mass + b2.mass);
-                b1.position.x -= nx * separationRatio * b2.mass;
-                b1.position.y -= ny * separationRatio * b2.mass;
-                b2.position.x += nx * separationRatio * b1.mass;
-                b2.position.y += ny * separationRatio * b1.mass;
-
-                // Exchange heat on collision (average temperatures)
-                float avgTemp = (b1.temperature * b1.mass + b2.temperature * b2.mass) / (b1.mass + b2.mass);
-                float tempExchange = 0.3f;  // 30% heat exchange
-                b1.temperature += (avgTemp - b1.temperature) * tempExchange;
-                b2.temperature += (avgTemp - b2.temperature) * tempExchange;
+                // Merge chance based on stickiness and relative speed
+                float relSpeed = std::fabs(dvn);
+                if (relSpeed < mergeSpeedThresh && uni01(rng) < stickiness) {
+                    // Merge cluster ids: assign b -> a's blob (or vice versa)
+                    int A = a.blobId, B = b.blobId;
+                    if (A != B) {
+                        // Move all members of blob B into blob A
+                        Blob& BA = blobs[A];
+                        Blob& BB = blobs[B];
+                        for (auto idx : BB.members) {
+                            molecules[idx].blobId = A;
+                            BA.members.push_back(idx);
+                        }
+                        BB.members.clear();
+                        blobs.erase(B);
+                    }
+                }
             }
         }
     }
 }
 
+void LavaLamp::updateClusters() {
+    // Recompute centers/radii
+    for (auto& kv : blobs) {
+        Blob& B = kv.second;
+        // remove dead members
+        std::vector<size_t> tmp;
+        tmp.reserve(B.members.size());
+        for (auto idx : B.members) {
+            if (idx < molecules.size() && molecules[idx].blobId == B.id) tmp.push_back(idx);
+        }
+        B.members.swap(tmp);
+
+        // recompute centroid and approx radius
+        accumulateCenterAndRadius(B, molecules);
+
+        // Shedding: randomly detach rim molecules
+        if (!B.members.empty() && splitChance > 0.0f) {
+            for (auto idx : B.members) {
+                const Molecule& m = molecules[idx];
+                float dx = m.position.x - B.center.x;
+                float dy = m.position.y - B.center.y;
+                float d = std::sqrt(dx*dx + dy*dy);
+                bool isRim = (B.approxRadius > 5.0f) && (d > 0.75f * B.approxRadius);
+                if (isRim && uni01(rng) < splitChance) {
+                    // detach: assign new blob id
+                    int newId = nextBlobId++;
+                    blobs[newId] = Blob{newId};
+                    blobs[newId].members.push_back(idx);
+                    molecules[idx].blobId = newId;
+                }
+            }
+        }
+    }
+}
+
+
 void LavaLamp::update(float dt) {
-    // Spawn new molecules periodically
     spawnTimer += dt;
-    if (spawnTimer >= SPAWN_INTERVAL) {
-        spawnMolecule();
-        spawnTimer = 0.0f;
-    }
+    if (spawnTimer >= SPAWN_INTERVAL) { spawnMolecule(); spawnTimer = 0.0f; }
 
-    // Update all molecules
-    for (auto& molecule : molecules) {
-        applyPhysics(molecule, dt);
-    }
+    for (auto& m : molecules) applyPhysics(m, dt);
+    resolveMoleculeCollisions();
+    updateClusters();
 
-    // Handle collisions between molecules
-    handleCollisions();
-
-    // Remove molecules that are too old or stable
+    // Optional cleanup of molecules far outside lamp (rare with walls)
     molecules.erase(
-        std::remove_if(molecules.begin(), molecules.end(), [this](const Molecule& b) {
-            // Remove if outside bounds significantly
-            return b.position.y < -100 || b.position.y > height + 100;
+        std::remove_if(molecules.begin(), molecules.end(), [this](const Molecule& m){
+            return m.position.y < -200 || m.position.y > height + 200 ||
+                   m.position.x < -200 || m.position.x > width + 200;
         }),
         molecules.end()
     );
