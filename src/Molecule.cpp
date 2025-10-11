@@ -1,31 +1,23 @@
 #include "Molecule.h"
 #include <cmath>
 
+
 Molecule::Molecule(float x, float y, float initialTemp, float m)
     : position(x, y), velocity(0, 0), temperature(initialTemp), mass(m) {
-    // Initial volume based on temperature
     volume = BASE_VOLUME * (1.0f + THERMAL_EXPANSION_COEFF * temperature);
-    radius = std::sqrt(volume) * 10.0f;  // Visual radius
+    radius = std::sqrt(volume) * 10.0f;
 }
 
 void Molecule::update(float dt, float ambientTemp) {
-    // Newton's Law of Cooling: dT/dt = -k(T - T_ambient)
+    // Newton cooling
     float tempDiff = temperature - ambientTemp;
     temperature -= COOLING_RATE * tempDiff * dt;
 
-    // Add extra cooling effect to push below ambient at extremes
-    // At the top (cold), molecules cool extra; at bottom (hot), they heat extra
+    // Extra push depending on zone (mild shaping)
     const float EXTRA_COOLING = 15.0f;
-    if (ambientTemp < 40.0f) {
-        // Cold zone - cool extra
-        temperature -= EXTRA_COOLING * dt;
-    } else if (ambientTemp > 80.0f) {
-        // Hot zone - heat extra
-        temperature += EXTRA_COOLING * dt;
-    }
+    if (ambientTemp < 40.0f)       temperature -= EXTRA_COOLING * dt; // colder near the top
+    else if (ambientTemp > 80.0f)  temperature += EXTRA_COOLING * dt; // warmer near the bottom
 
-    // Update volume based on temperature (thermal expansion)
-    // V = V0 * (1 + α * ΔT)
     volume = BASE_VOLUME * (1.0f + THERMAL_EXPANSION_COEFF * temperature);
     radius = std::sqrt(volume) * 10.0f;
 }
@@ -37,7 +29,6 @@ float Molecule::getDensity() const {
 
 float Molecule::getBuoyancyForce(float mediumDensity) const {
     // Buoyancy force: F = (ρ_medium - ρ_molecule) * V * g
-    // We'll use simplified gravity constant
     const float g = 100.0f;
     return (mediumDensity - getDensity()) * volume * g;
 }

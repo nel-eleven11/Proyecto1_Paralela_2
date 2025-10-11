@@ -1,5 +1,3 @@
-// Utilities to recompute blob centroid and approximate radius.
-
 #include "Blob.h"
 #include <cmath>
 

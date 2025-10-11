@@ -5,7 +5,6 @@
 #include "LavaLamp.h"
 #include "Palette.h"
 
-
 class Renderer {
 public:
     Renderer(int width, int height);
@@ -22,23 +21,23 @@ public:
 
     bool isRunning() const { return running; }
     void handleEvents();
+
+    // Light & palette controls
     void setLightIntensity(float k) { lightIntensity = k; }
-    void setPalette(PaletteKind p) { palette = p; }
+    void setPalette(PaletteKind p)  { palette = p; }
 
 private:
-
-    float lightIntensity = 0.6f; 
-    PaletteKind palette = PaletteKind::RED;
-
-    SDL_Window* window;
+    SDL_Window*   window;
     SDL_Renderer* renderer;
     int width, height;
     bool running;
 
-    void drawMolecule(const Molecule& m, const LavaLamp& lamp);
-    void drawBackground(int height);
-    void drawLampLight();
+    float       lightIntensity = 0.6f;     // 0..1 (not too strong)
+    PaletteKind palette       = PaletteKind::RED;
 
+    void drawBackground(int h);
+    void drawLampLight();
+    void drawMolecule(const Molecule& m, const LavaLamp& lamp);
 };
 
 #endif
