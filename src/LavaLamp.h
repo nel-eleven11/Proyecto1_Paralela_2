@@ -23,6 +23,11 @@ public:
 private:
     int width, height;
 
+    float wallRestitution = 0.25f;     // soft bounce on walls
+    float wallStickTop    = 0.2f;      // chance to stick at the top
+    float wallStickBottom = 0.05f;     // small chance to temporarily stick at bottom
+    void  handleWalls(Molecule& m);
+
     std::vector<Molecule> molecules;           // base particles
     std::unordered_map<int, Blob> blobs;       // dynamic clusters
     int nextBlobId = 0;

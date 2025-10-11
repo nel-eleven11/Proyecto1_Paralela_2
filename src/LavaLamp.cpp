@@ -155,6 +155,40 @@ void LavaLamp::updateClusters() {
     }
 }
 
+void LavaLamp::handleWalls(Molecule& m) {
+    // Left/right walls (hard capsule)
+    if (m.position.x < m.radius) {
+        m.position.x = m.radius;
+        m.velocity.x = -m.velocity.x * wallRestitution;
+    }
+    if (m.position.x > width - m.radius) {
+        m.position.x = width - m.radius;
+        m.velocity.x = -m.velocity.x * wallRestitution;
+    }
+
+    // Top wall
+    if (m.position.y < m.radius) {
+        m.position.y = m.radius;
+        // stick or bounce
+        if (uni01(rng) < wallStickTop) {
+            m.velocity.y = 0.0f; // temporary stick
+        } else {
+            m.velocity.y = -m.velocity.y * wallRestitution;
+        }
+    }
+
+    // Bottom wall
+    if (m.position.y > height - m.radius) {
+        m.position.y = height - m.radius;
+        if (uni01(rng) < wallStickBottom) {
+            m.velocity.y = 0.0f;
+        } else {
+            m.velocity.y = -m.velocity.y * wallRestitution;
+        }
+    }
+}
+
+
 
 void LavaLamp::update(float dt) {
     spawnTimer += dt;
