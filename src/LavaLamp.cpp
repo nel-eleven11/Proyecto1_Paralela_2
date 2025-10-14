@@ -1,32 +1,47 @@
 #include "LavaLamp.h"
 #include <cmath>
 
-// --- local utility: recompute blob centroid & approx radius ---
 static inline void accumulateCenterAndRadius(Blob& b, const std::vector<Molecule>& mols) {
     if (b.members.empty()) { b.center = {0,0}; b.approxRadius = 0.0f; return; }
-
     double sx = 0.0, sy = 0.0;
-    for (auto idx : b.members) {
-        sx += mols[idx].position.x;
-        sy += mols[idx].position.y;
-    }
+    for (auto idx : b.members) { sx += mols[idx].position.x; sy += mols[idx].position.y; }
     b.center.x = float(sx / double(b.members.size()));
     b.center.y = float(sy / double(b.members.size()));
-
     double acc = 0.0;
     for (auto idx : b.members) {
         float dx = mols[idx].position.x - b.center.x;
         float dy = mols[idx].position.y - b.center.y;
         acc += std::sqrt(dx*dx + dy*dy);
     }
-    double meanDist = acc / double(b.members.size());
-    b.approxRadius = float(meanDist);
+    b.approxRadius = float(acc / double(b.members.size()));
+}
+
+float LavaLamp::archYAtX(float x) const {
+    float archBaseY = height * archBaseYFactor;
+    float leftEdge  = archInsetX;
+    float rightEdge = float(width) - archInsetX;
+    if (x <= leftEdge)  return archBaseY + archSlope * (leftEdge  - hotspotCenterX);
+    if (x >= rightEdge) return archBaseY + archSlope * (rightEdge - hotspotCenterX);
+    float d = std::abs(x - hotspotCenterX);
+    return archBaseY + archSlope * d;
+}
+
+float LavaLamp::rampYAtX(float x) const {
+    float ySide  = height * rampStartYFactor;
+    float yBasin = height * basinYFactor;
+    float halfSpanPx = std::max(20.0f, float(width) * rampHalfSpanX);
+    float t = std::abs(x - hotspotCenterX) / halfSpanPx;
+    if (t > 1.0f) t = 1.0f;
+    float weight = std::pow(t, rampCurvePower);
+    return yBasin + (ySide - yBasin) * weight;
 }
 
 LavaLamp::LavaLamp(int w, int h, int numMolecules)
     : width(w), height(h),
       hotTemp(100.0f), coldTemp(20.0f),
       mediumDensity(1.0f), spawnTimer(0.0f),
+      hotspotCenterX(float(w) * 0.5f),
+      hotspotCenterY(float(h) * 0.85f),
       rng(std::mt19937{std::random_device{}()}),
       xDist(50.0f, float(w - 50)),
       uni01(0.0f, 1.0f)
@@ -35,20 +50,28 @@ LavaLamp::LavaLamp(int w, int h, int numMolecules)
     for (int i = 0; i < numMolecules; ++i) spawnMolecule();
 }
 
-float LavaLamp::getTemperatureAt(float y) const {
-    // Linear gradient: hot at bottom (height), cold at top (0)
-    float t = std::clamp(y / float(height), 0.0f, 1.0f);
-    return coldTemp + (hotTemp - coldTemp) * t;
+float LavaLamp::getTemperatureAt(float x, float y) const {
+    float baseT = coldTemp + (hotTemp - coldTemp) * std::clamp(y / float(height), 0.0f, 1.0f);
+    float yTop = height * columnTopFactor;
+    float yBottom = height * columnBottomFactor;
+    float inBand = (y >= yTop && y <= yBottom) ? 1.0f : 0.0f;
+    float dx = std::abs(x - hotspotCenterX);
+    float coreZone = std::max(0.0f, 1.0f - dx / std::max(1.0f, columnHalfWidth));
+    float feather = std::clamp((columnHalfWidth + columnEdgeFeather - dx) / std::max(1.0f, columnEdgeFeather), 0.0f, 1.0f);
+    float columnHeat = (columnHeatBonus * feather + columnCoreHeatBonus * coreZone) * inBand;
+    return baseT + columnHeat;
 }
 
 void LavaLamp::spawnMolecule() {
-    float x = xDist(rng);
-    float y = height - 30.0f;
-    float initialTemp = hotTemp + float((rand() % 20) - 10);
+    float yBottom = height * columnBottomFactor;
+    float spawnHalfW = std::max(10.0f, columnHalfWidth * 0.6f);
+    std::uniform_real_distribution<float> spawnX(hotspotCenterX - spawnHalfW, hotspotCenterX + spawnHalfW);
+    std::uniform_real_distribution<float> spawnY(yBottom - 0.10f * height, yBottom - 0.02f * height);
+    float x = std::clamp(spawnX(rng), 0.0f, float(width));
+    float y = std::min(float(height - 5.0f), spawnY(rng));
+    float initialTemp = hotTemp + 10.0f;
     float mass = 0.35f + float(rand() % 30) / 200.0f;
-
     molecules.emplace_back(x, y, initialTemp, mass);
-
     Molecule& m = molecules.back();
     m.blobId = nextBlobId++;
     Blob B; B.id = m.blobId; B.members.push_back(molecules.size() - 1);
@@ -56,7 +79,6 @@ void LavaLamp::spawnMolecule() {
 }
 
 void LavaLamp::handleWalls(Molecule& m) {
-    // Left/right walls (capsule)
     if (m.position.x < m.radius) {
         m.position.x = m.radius;
         m.velocity.x = -m.velocity.x * wallRestitution;
@@ -65,39 +87,122 @@ void LavaLamp::handleWalls(Molecule& m) {
         m.position.x = width - m.radius;
         m.velocity.x = -m.velocity.x * wallRestitution;
     }
-
-    // Top wall
     if (m.position.y < m.radius) {
         m.position.y = m.radius;
         if (uni01(rng) < wallStickTop) m.velocity.y = 0.0f;
         else                           m.velocity.y = -m.velocity.y * wallRestitution;
     }
-
-    // Bottom wall
     if (m.position.y > height - m.radius) {
         m.position.y = height - m.radius;
         if (uni01(rng) < wallStickBottom) m.velocity.y = 0.0f;
         else                              m.velocity.y = -m.velocity.y * wallRestitution;
     }
+
+    float yRamp = rampYAtX(m.position.x);
+    if (m.position.y > yRamp + rampThickness) {
+        m.position.y = yRamp + rampThickness;
+        if (m.position.x < hotspotCenterX && m.velocity.x < 0.0f)
+            m.velocity.x = -m.velocity.x * rampReflectK;
+        if (m.position.x > hotspotCenterX && m.velocity.x > 0.0f)
+            m.velocity.x = -m.velocity.x * rampReflectK;
+        m.velocity.y += rampDownPush * 0.6f;
+        float kickDir = (m.position.x < hotspotCenterX) ? 1.0f : -1.0f;
+        m.velocity.x += kickDir * rampCenterKick;
+    }
+
+    float archY = archYAtX(m.position.x);
+    if (m.position.y < archY + archThickness) {
+        float dir = (m.position.x < hotspotCenterX) ? -1.0f : 1.0f;
+        m.velocity.x += dir * archPushSide;
+        m.velocity.y += archPushDown;
+        if (m.velocity.y < 0.0f) m.velocity.y = 0.0f;
+    }
 }
 
 void LavaLamp::applyPhysics(Molecule& m, float dt) {
-    float ambientTemp = getTemperatureAt(m.position.y);
+    float ambientTemp = getTemperatureAt(m.position.x, m.position.y);
     m.update(dt, ambientTemp);
 
     float tempDiff = m.temperature - ambientTemp;
     const float buoyancyStrength = 300.0f;
     float buoyancy = -tempDiff * buoyancyStrength;
-
     float acceleration = buoyancy / m.mass;
 
     const float dragCoeff = 0.15f;
     float drag = -dragCoeff * m.velocity.y * std::abs(m.velocity.y);
 
+    float dxCenter = m.position.x - hotspotCenterX;
+    bool insideCenterColumn = (std::abs(dxCenter) <= centerColumnHalfW);
+
+    float updraftStartY = height * updraftStartFactor;
+    if (insideCenterColumn && m.position.y > updraftStartY) {
+        float range = std::max(1.0f, height - updraftStartY);
+        float updraftScale = std::clamp((m.position.y - updraftStartY) / range, 0.0f, 1.0f);
+        m.velocity.y -= updraftPush * updraftScale * dt;
+        if (m.velocity.y > -centerLiftMinUp) m.velocity.y = -centerLiftMinUp;
+        float jitter = (uni01(rng) * 2.0f - 1.0f) * hotJitterX;
+        m.velocity.x += jitter * dt;
+    } else {
+        if (m.velocity.y < 0.0f) m.velocity.y *= outsideUpwardDampen;
+    }
+
+    float dyToHotspot = std::abs(m.position.y - hotspotCenterY);
+    if (dyToHotspot < basinLiftRadiusY && insideCenterColumn) {
+        float liftScale = 1.0f - (dyToHotspot / basinLiftRadiusY);
+        m.velocity.y -= basinLiftBoost * liftScale * dt;
+    }
+
+    float intakeY = height * intakeYFactor;
+    if (m.position.y > intakeY && !insideCenterColumn) {
+        float dir = (dxCenter <= 0.0f) ? 1.0f : -1.0f;
+        m.velocity.x += dir * intakePull * dt;
+        if (m.velocity.y < 0.0f) m.velocity.y = 0.0f;
+    }
+
+    float bandTop    = height * centerLineBandTopFactor;
+    float bandBottom = height * centerLineBandBottomFactor;
+    if (m.position.y > bandTop && m.position.y < bandBottom) {
+        float toCenterDir = (dxCenter <= 0.0f) ? 1.0f : -1.0f;
+        float distanceX   = std::abs(dxCenter);
+        float weightX     = std::clamp(1.0f - distanceX / std::max(1.0f, columnHalfWidth), 0.0f, 1.0f);
+        float heatSeek    = centerLinePull * (0.5f + 0.5f * std::clamp((m.temperature - ambientTemp) / 50.0f, 0.0f, 1.0f));
+        m.velocity.x += toCenterDir * heatSeek * (1.0f - weightX) * dt;
+    }
+
+    float topBandY = height * topOutflowBandFactor;
+    if (m.position.y < topBandY && insideCenterColumn) {
+        float outDir = (dxCenter <= 0.0f) ? -1.0f : 1.0f;
+        m.velocity.x += outDir * topOutflowSidePush * dt;
+    }
+
+    float nfTop = height * centerNoFallBandTopFactor;
+    float nfBottom = height * centerNoFallBandBottomFactor;
+    if (insideCenterColumn && m.position.y > nfTop && m.position.y < nfBottom && m.velocity.y > 0.0f) {
+        float outDir = (dxCenter <= 0.0f) ? -1.0f : 1.0f;
+        m.velocity.x += outDir * centerNoFallSidePush * dt;
+        if (m.velocity.y > 0.0f) m.velocity.y = 0.0f;
+    }
+
+    bool nearLeft  = (m.position.x < sideBandWidth);
+    bool nearRight = (m.position.x > width - sideBandWidth);
+    if (nearLeft || nearRight) {
+        float boost = (m.position.y < height * 0.5f) ? sideTopBoost : 1.0f;
+        m.velocity.y += sideDownPush * boost * dt;
+        if (m.velocity.y > 0.0f) {
+            float dirToCenter = (dxCenter <= 0.0f) ? 1.0f : -1.0f;
+            m.velocity.x += dirToCenter * (rampCenterPull * 0.6f) * dt;
+        }
+        if (m.velocity.y < 0.0f) m.velocity.y = 0.0f;
+    }
+
+    m.velocity.x *= horizontalDamping;
+    if (m.velocity.x >  maxHorizontalSpeed) m.velocity.x =  maxHorizontalSpeed;
+    if (m.velocity.x < -maxHorizontalSpeed) m.velocity.x = -maxHorizontalSpeed;
+
     const float dampingFactor = 0.985f;
     m.velocity.y = (m.velocity.y + (acceleration + drag) * dt) * dampingFactor;
 
-    const float maxVelocity = 160.0f;
+    const float maxVelocity = 180.0f;
     if (m.velocity.y >  maxVelocity) m.velocity.y =  maxVelocity;
     if (m.velocity.y < -maxVelocity) m.velocity.y = -maxVelocity;
 
@@ -107,7 +212,7 @@ void LavaLamp::applyPhysics(Molecule& m, float dt) {
 }
 
 void LavaLamp::resolveMoleculeCollisions() {
-    const float restitution = 0.2f;     // inelastic to promote merging
+    const float restitution = 0.2f;
     const float mergeSpeedThresh = 45.0f;
 
     for (size_t i = 0; i < molecules.size(); ++i) {
@@ -129,7 +234,6 @@ void LavaLamp::resolveMoleculeCollisions() {
                 float dvy = b.velocity.y - a.velocity.y;
                 float dvn = dvx * nx + dvy * ny;
 
-                // Separate slightly to prevent sinking
                 float overlap = (minDist - dist);
                 float totalMass = a.mass + b.mass;
                 a.position.x -= nx * overlap * (b.mass / totalMass);
@@ -137,16 +241,14 @@ void LavaLamp::resolveMoleculeCollisions() {
                 b.position.x += nx * overlap * (a.mass / totalMass);
                 b.position.y += ny * overlap * (a.mass / totalMass);
 
-                if (dvn > 0.0f) continue; // already separating
+                if (dvn > 0.0f) continue;
 
-                // Inelastic impulse
                 float impulse = -(1.0f + restitution) * dvn / (1.0f / a.mass + 1.0f / b.mass);
                 a.velocity.x -= impulse * nx / a.mass;
                 a.velocity.y -= impulse * ny / a.mass;
                 b.velocity.x += impulse * nx / b.mass;
                 b.velocity.y += impulse * ny / b.mass;
 
-                // Merge chance based on stickiness and relative speed
                 float relSpeed = std::fabs(dvn);
                 if (relSpeed < mergeSpeedThresh && uni01(rng) < stickiness) {
                     int A = a.blobId, B = b.blobId;
@@ -167,11 +269,8 @@ void LavaLamp::resolveMoleculeCollisions() {
 }
 
 void LavaLamp::updateClusters() {
-    // Recompute centers/radii and shed rim molecules
     for (auto it = blobs.begin(); it != blobs.end(); ) {
         Blob& B = it->second;
-
-        // Filter out dead members
         std::vector<size_t> filtered;
         filtered.reserve(B.members.size());
         for (auto idx : B.members) {
@@ -179,15 +278,11 @@ void LavaLamp::updateClusters() {
                 filtered.push_back(idx);
         }
         B.members.swap(filtered);
-
         if (B.members.empty()) {
             it = blobs.erase(it);
             continue;
         }
-
         accumulateCenterAndRadius(B, molecules);
-
-        // Shedding: randomly detach rim molecules
         if (splitChance > 0.0f && B.approxRadius > 5.0f) {
             for (auto idx : B.members) {
                 const Molecule& m = molecules[idx];
@@ -195,12 +290,10 @@ void LavaLamp::updateClusters() {
                 float dy = m.position.y - B.center.y;
                 float d  = std::sqrt(dx*dx + dy*dy);
                 bool isRim = (d > 0.75f * B.approxRadius);
-
                 if (isRim && uni01(rng) < splitChance) {
                     int newId = nextBlobId++;
                     blobs[newId] = Blob{ newId };
                     blobs[newId].members.push_back(idx);
-                    // Note: update molecule blobId
                     const_cast<Molecule&>(molecules[idx]).blobId = newId;
                 }
             }
@@ -215,12 +308,9 @@ void LavaLamp::update(float dt) {
         spawnMolecule();
         spawnTimer = 0.0f;
     }
-
     for (auto& m : molecules)  applyPhysics(m, dt);
     resolveMoleculeCollisions();
     updateClusters();
-
-    // Cleanup (rare)
     molecules.erase(
         std::remove_if(molecules.begin(), molecules.end(), [this](const Molecule& m){
             return m.position.y < -200 || m.position.y > height + 200 ||

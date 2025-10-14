@@ -6,21 +6,19 @@
 #include <cmath>
 #include <algorithm>
 #include <string>
-#include <getopt.h>   // getopt on Linux
-#include <unistd.h>   // some distros need this for getopt declarations
+#include <getopt.h>
+#include <unistd.h>
 
 int main(int argc, char* argv[]) {
-    // Defaults
     const int TARGET_FPS = 60;
     const float TARGET_FRAME_TIME = 1000.0f / TARGET_FPS;
 
     int   numMolecules = 20;
     int   windowWidth  = 800;
     int   windowHeight = 600;
-    float lightK       = 0.6f;       // 0..1
-    std::string paletteName = "red"; // red, blue, orange, green, purple, rainbow
+    float lightK       = 0.6f;
+    std::string paletteName = "red";
 
-    // Parse arguments: -n (molecules), -w, -h, -L (light), -p (palette)
     int opt;
     while ((opt = getopt(argc, argv, "n:w:h:L:p:")) != -1) {
         switch(opt) {
@@ -37,7 +35,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Initialize renderer
     Renderer renderer(windowWidth, windowHeight);
     if (!renderer.init()) {
         std::cerr << "Failed to initialize renderer: " << SDL_GetError() << std::endl;
@@ -46,10 +43,8 @@ int main(int argc, char* argv[]) {
     renderer.setLightIntensity(std::max(0.0f, std::min(1.0f, lightK)));
     renderer.setPalette(parsePalette(paletteName));
 
-    // Simulation
     LavaLamp lamp(windowWidth, windowHeight, numMolecules);
 
-    // FPS tracking
     double fps_accum = 0.0;
     int    fps_frames = 0;
     double fps_smoothed = 0.0;
@@ -59,9 +54,10 @@ int main(int argc, char* argv[]) {
         Uint32 currentTime = SDL_GetTicks();
         float dt = (currentTime - lastTime) / 1000.0f;
         lastTime = currentTime;
-        if (dt > 0.1f) dt = 0.1f; // clamp to avoid big jumps
+        if (dt > 0.1f) dt = 0.1f;
 
         renderer.handleEvents();
+        renderer.update(dt);
 
         lamp.update(dt);
 
@@ -69,27 +65,19 @@ int main(int argc, char* argv[]) {
         renderer.render(lamp);
         renderer.present();
 
-        // FPS every ~1s
         fps_accum += dt;
         fps_frames++;
         if (fps_accum >= 1.0) {
             double fps_inst = fps_frames / fps_accum;
             fps_smoothed = (fps_smoothed == 0.0) ? fps_inst : (0.8 * fps_smoothed + 0.2 * fps_inst);
-
-            // Window title
             std::ostringstream title;
             title << "Lava Lamp | " << renderer.getWidth() << "x" << renderer.getHeight()
                   << " | FPS=" << static_cast<int>(std::round(fps_smoothed));
             SDL_SetWindowTitle(renderer.getSDLWindow(), title.str().c_str());
-
-            // Console
-            std::cout << "FPS= " << fps_smoothed << std::endl;
-
             fps_accum = 0.0;
             fps_frames = 0;
         }
 
-        // Frame rate limiting
         Uint32 frameTime = SDL_GetTicks() - currentTime;
         if (frameTime < TARGET_FRAME_TIME) {
             SDL_Delay(static_cast<Uint32>(TARGET_FRAME_TIME - frameTime));
