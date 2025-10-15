@@ -1,5 +1,4 @@
 #include "LavaLamp.h"
-#include <cmath>
 #include <numeric>
 #include <limits>
 
@@ -31,8 +30,8 @@ float LavaLamp::archYAtX(float x) const {
 }
 
 float LavaLamp::rampYAtX(float x) const {
-    float ySide  = height * rampStartYFactor;
-    float yBasin = height * basinYFactor;
+    float ySide = height * rampStartYFactor;
+    float yBasin= height * basinYFactor;
     float halfSpanPx = std::max(20.0f, float(width) * rampHalfSpanX);
     float t = std::abs(x - hotspotCenterX) / halfSpanPx;
     if (t > 1.0f) t = 1.0f;
@@ -52,18 +51,21 @@ LavaLamp::LavaLamp(int w, int h, int numMolecules)
 {
     molecules.reserve(std::max(0, numMolecules));
     for (int i = 0; i < numMolecules; ++i) spawnMolecule();
-    
+    // initial grouping
     rebuildBlobsPaddingBased();
 }
 
 float LavaLamp::getTemperatureAt(float x, float y) const {
     float baseT = coldTemp + (hotTemp - coldTemp) * std::clamp(y / float(height), 0.0f, 1.0f);
-    float yTop = height * columnTopFactor;
+
+    float yTop    = height * columnTopFactor;
     float yBottom = height * columnBottomFactor;
-    float inBand = (y >= yTop && y <= yBottom) ? 1.0f : 0.0f;
-    float dx = std::abs(x - hotspotCenterX);
+    float inBand  = (y >= yTop && y <= yBottom) ? 1.0f : 0.0f;
+
+    float dx       = std::abs(x - hotspotCenterX);
     float coreZone = std::max(0.0f, 1.0f - dx / std::max(1.0f, columnHalfWidth));
-    float feather = std::clamp((columnHalfWidth + columnEdgeFeather - dx) / std::max(1.0f, columnEdgeFeather), 0.0f, 1.0f);
+    float feather  = std::clamp((columnHalfWidth + columnEdgeFeather - dx) / std::max(1.0f, columnEdgeFeather), 0.0f, 1.0f);
+
     float columnHeat = (columnHeatBonus * feather + columnCoreHeatBonus * coreZone) * inBand;
     return baseT + columnHeat;
 }
@@ -82,7 +84,6 @@ void LavaLamp::spawnMolecule() {
     float mass = 0.35f + float(rand() % 30) / 200.0f;
 
     molecules.emplace_back(x, y, initialTemp, mass);
-    // blobId will be set in rebuildBlobsPaddingBased()
     molecules.back().blobId = -1;
 }
 
@@ -90,10 +91,12 @@ void LavaLamp::handleWalls(Molecule& m) {
     if (m.position.x < m.radius) {
         m.position.x = m.radius;
         m.velocity.x = -m.velocity.x * wallRestitution;
+        if (std::abs(m.velocity.x) < 0.1f) m.velocity.x = 0.0f;
     }
     if (m.position.x > width - m.radius) {
         m.position.x = width - m.radius;
         m.velocity.x = -m.velocity.x * wallRestitution;
+        if (std::abs(m.velocity.x) < 0.1f) m.velocity.x = 0.0f;
     }
     if (m.position.y < m.radius) {
         m.position.y = m.radius;
@@ -104,6 +107,14 @@ void LavaLamp::handleWalls(Molecule& m) {
         m.position.y = height - m.radius;
         if (uni01(rng) < wallStickBottom) m.velocity.y = 0.0f;
         else                              m.velocity.y = -m.velocity.y * wallRestitution;
+    }
+
+    if (std::abs(m.velocity.x) < 0.1f && (m.position.x < m.radius || m.position.x > width - m.radius)) {
+        m.velocity.x = 0.0f; 
+    }
+
+    if (std::abs(m.velocity.y) < 0.1f && (m.position.y < m.radius || m.position.y > height - m.radius)) {
+        m.velocity.y = 0.0f;  
     }
 
     float yRamp = rampYAtX(m.position.x);
@@ -169,13 +180,13 @@ void LavaLamp::applyPhysics(Molecule& m, float dt) {
         if (m.velocity.y < 0.0f) m.velocity.y = 0.0f;
     }
 
-    float bandTop    = height * centerLineBandTopFactor;
+    float bandTop = height * centerLineBandTopFactor;
     float bandBottom = height * centerLineBandBottomFactor;
     if (m.position.y > bandTop && m.position.y < bandBottom) {
         float toCenterDir = (dxCenter <= 0.0f) ? 1.0f : -1.0f;
-        float distanceX   = std::abs(dxCenter);
-        float weightX     = std::clamp(1.0f - distanceX / std::max(1.0f, columnHalfWidth), 0.0f, 1.0f);
-        float heatSeek    = centerLinePull * (0.5f + 0.5f * std::clamp((m.temperature - ambientTemp) / 50.0f, 0.0f, 1.0f));
+        float distanceX = std::abs(dxCenter);
+        float weightX   = std::clamp(1.0f - distanceX / std::max(1.0f, columnHalfWidth), 0.0f, 1.0f);
+        float heatSeek  = centerLinePull * (0.5f + 0.5f * std::clamp((m.temperature - ambientTemp) / 50.0f, 0.0f, 1.0f));
         m.velocity.x += toCenterDir * heatSeek * (1.0f - weightX) * dt;
     }
 
@@ -223,7 +234,6 @@ void LavaLamp::applyPhysics(Molecule& m, float dt) {
 
 void LavaLamp::resolveMoleculeCollisions() {
     const float restitution = 0.2f;
-    const float mergeSpeedThresh = 45.0f;
 
     for (size_t i = 0; i < molecules.size(); ++i) {
         for (size_t j = i + 1; j < molecules.size(); ++j) {
@@ -240,10 +250,7 @@ void LavaLamp::resolveMoleculeCollisions() {
                 float nx = dx / dist;
                 float ny = dy / dist;
 
-                float dvx = b.velocity.x - a.velocity.x;
-                float dvy = b.velocity.y - a.velocity.y;
-                float dvn = dvx * nx + dvy * ny;
-
+                // positional correction (mass-weighted)
                 float overlap = (minDist - dist);
                 float totalMass = a.mass + b.mass;
                 a.position.x -= nx * overlap * (b.mass / totalMass);
@@ -251,27 +258,16 @@ void LavaLamp::resolveMoleculeCollisions() {
                 b.position.x += nx * overlap * (a.mass / totalMass);
                 b.position.y += ny * overlap * (a.mass / totalMass);
 
-                if (dvn > 0.0f) continue;
-
-                float impulse = -(1.0f + restitution) * dvn / (1.0f / a.mass + 1.0f / b.mass);
-                a.velocity.x -= impulse * nx / a.mass;
-                a.velocity.y -= impulse * ny / a.mass;
-                b.velocity.x += impulse * nx / b.mass;
-                b.velocity.y += impulse * ny / b.mass;
-
-                float relSpeed = std::fabs(dvn);
-                if (relSpeed < mergeSpeedThresh && uni01(rng) < stickiness) {
-                    int A = a.blobId, B = b.blobId;
-                    if (A != B) {
-                        Blob& BA = blobs[A];
-                        Blob& BB = blobs[B];
-                        for (auto idx : BB.members) {
-                            molecules[idx].blobId = A;
-                            BA.members.push_back(idx);
-                        }
-                        BB.members.clear();
-                        blobs.erase(B);
-                    }
+                // inelastic impulse (no merge here; grouping is padding-based now)
+                float dvx = b.velocity.x - a.velocity.x;
+                float dvy = b.velocity.y - a.velocity.y;
+                float dvn = dvx * nx + dvy * ny;
+                if (dvn < 0.0f) {
+                    float impulse = -(1.0f + restitution) * dvn / (1.0f / a.mass + 1.0f / b.mass);
+                    a.velocity.x -= impulse * nx / a.mass;
+                    a.velocity.y -= impulse * ny / a.mass;
+                    b.velocity.x += impulse * nx / b.mass;
+                    b.velocity.y += impulse * ny / b.mass;
                 }
             }
         }
@@ -296,7 +292,6 @@ void LavaLamp::rebuildBlobsPaddingBased() {
         parent[b] = a;
     };
 
-    // edge rule: dist <= (ri + rj) + linkPaddingFraction * (pi + pj)
     for (int i = 0; i < N; ++i) {
         const Molecule& A = molecules[i];
         for (int j = i+1; j < N; ++j) {
@@ -338,7 +333,6 @@ void LavaLamp::rebuildBlobsPaddingBased() {
 }
 
 void LavaLamp::updateClusters() {
-    // Recompute clusters entirely by padding proximity each frame
     rebuildBlobsPaddingBased();
 }
 
@@ -348,7 +342,8 @@ void LavaLamp::update(float dt) {
         spawnMolecule();
         spawnTimer = 0.0f;
     }
-    for (auto& m : molecules)  applyPhysics(m, dt);
+
+    for (auto& m : molecules) applyPhysics(m, dt);
     resolveMoleculeCollisions();
     updateClusters();
     molecules.erase(

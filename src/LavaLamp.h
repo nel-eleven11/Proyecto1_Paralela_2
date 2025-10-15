@@ -45,8 +45,8 @@ private:
     float stickiness  = 0.75f;
     float splitChance = 0.01f;
 
-    float wallRestitution = 0.25f;
-    float wallStickTop    = 0.35f;
+    float wallRestitution = 0.30f;
+    float wallStickTop    = 0.45f;
     float wallStickBottom = 0.03f;
 
     const float hotspotCenterX;
