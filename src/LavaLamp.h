@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <random>
 #include <algorithm>
+#include <cmath>
 #include "Molecule.h"
 #include "Blob.h"
 
@@ -37,6 +38,9 @@ private:
 
     float spawnTimer;
     static constexpr float SPAWN_INTERVAL = 2.0f;
+
+    float paddingFactor = 0.70f;
+    float linkPaddingFraction = 0.30f;
 
     float stickiness  = 0.75f;
     float splitChance = 0.01f;
@@ -116,6 +120,9 @@ private:
 
     float archYAtX(float x) const;
     float rampYAtX(float x) const;
+
+    void  rebuildBlobsPaddingBased();
+    static void accumulateCenterAndRadius(Blob& b, const std::vector<Molecule>& mols);
 };
 
 #endif

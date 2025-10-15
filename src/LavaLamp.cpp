@@ -1,12 +1,16 @@
 #include "LavaLamp.h"
 #include <cmath>
+#include <numeric>
+#include <limits>
 
-static inline void accumulateCenterAndRadius(Blob& b, const std::vector<Molecule>& mols) {
+void LavaLamp::accumulateCenterAndRadius(Blob& b, const std::vector<Molecule>& mols) {
     if (b.members.empty()) { b.center = {0,0}; b.approxRadius = 0.0f; return; }
-    double sx = 0.0, sy = 0.0;
+
+    double sx=0.0, sy=0.0;
     for (auto idx : b.members) { sx += mols[idx].position.x; sy += mols[idx].position.y; }
     b.center.x = float(sx / double(b.members.size()));
     b.center.y = float(sy / double(b.members.size()));
+
     double acc = 0.0;
     for (auto idx : b.members) {
         float dx = mols[idx].position.x - b.center.x;
@@ -20,7 +24,7 @@ float LavaLamp::archYAtX(float x) const {
     float archBaseY = height * archBaseYFactor;
     float leftEdge  = archInsetX;
     float rightEdge = float(width) - archInsetX;
-    if (x <= leftEdge)  return archBaseY + archSlope * (leftEdge  - hotspotCenterX);
+    if (x <= leftEdge)  return archBaseY + archSlope * (leftEdge - hotspotCenterX);
     if (x >= rightEdge) return archBaseY + archSlope * (rightEdge - hotspotCenterX);
     float d = std::abs(x - hotspotCenterX);
     return archBaseY + archSlope * d;
@@ -48,6 +52,8 @@ LavaLamp::LavaLamp(int w, int h, int numMolecules)
 {
     molecules.reserve(std::max(0, numMolecules));
     for (int i = 0; i < numMolecules; ++i) spawnMolecule();
+    
+    rebuildBlobsPaddingBased();
 }
 
 float LavaLamp::getTemperatureAt(float x, float y) const {
@@ -65,17 +71,19 @@ float LavaLamp::getTemperatureAt(float x, float y) const {
 void LavaLamp::spawnMolecule() {
     float yBottom = height * columnBottomFactor;
     float spawnHalfW = std::max(10.0f, columnHalfWidth * 0.6f);
+
     std::uniform_real_distribution<float> spawnX(hotspotCenterX - spawnHalfW, hotspotCenterX + spawnHalfW);
-    std::uniform_real_distribution<float> spawnY(yBottom - 0.10f * height, yBottom - 0.02f * height);
+    std::uniform_real_distribution<float> spawnY(yBottom - 0.10f * height,    yBottom - 0.02f * height);
+
     float x = std::clamp(spawnX(rng), 0.0f, float(width));
     float y = std::min(float(height - 5.0f), spawnY(rng));
+
     float initialTemp = hotTemp + 10.0f;
     float mass = 0.35f + float(rand() % 30) / 200.0f;
+
     molecules.emplace_back(x, y, initialTemp, mass);
-    Molecule& m = molecules.back();
-    m.blobId = nextBlobId++;
-    Blob B; B.id = m.blobId; B.members.push_back(molecules.size() - 1);
-    blobs[B.id] = std::move(B);
+    // blobId will be set in rebuildBlobsPaddingBased()
+    molecules.back().blobId = -1;
 }
 
 void LavaLamp::handleWalls(Molecule& m) {
@@ -122,6 +130,8 @@ void LavaLamp::handleWalls(Molecule& m) {
 void LavaLamp::applyPhysics(Molecule& m, float dt) {
     float ambientTemp = getTemperatureAt(m.position.x, m.position.y);
     m.update(dt, ambientTemp);
+
+    m.padding = paddingFactor * m.radius;
 
     float tempDiff = m.temperature - ambientTemp;
     const float buoyancyStrength = 300.0f;
@@ -268,38 +278,68 @@ void LavaLamp::resolveMoleculeCollisions() {
     }
 }
 
-void LavaLamp::updateClusters() {
-    for (auto it = blobs.begin(); it != blobs.end(); ) {
-        Blob& B = it->second;
-        std::vector<size_t> filtered;
-        filtered.reserve(B.members.size());
-        for (auto idx : B.members) {
-            if (idx < molecules.size() && molecules[idx].blobId == B.id)
-                filtered.push_back(idx);
-        }
-        B.members.swap(filtered);
-        if (B.members.empty()) {
-            it = blobs.erase(it);
-            continue;
-        }
-        accumulateCenterAndRadius(B, molecules);
-        if (splitChance > 0.0f && B.approxRadius > 5.0f) {
-            for (auto idx : B.members) {
-                const Molecule& m = molecules[idx];
-                float dx = m.position.x - B.center.x;
-                float dy = m.position.y - B.center.y;
-                float d  = std::sqrt(dx*dx + dy*dy);
-                bool isRim = (d > 0.75f * B.approxRadius);
-                if (isRim && uni01(rng) < splitChance) {
-                    int newId = nextBlobId++;
-                    blobs[newId] = Blob{ newId };
-                    blobs[newId].members.push_back(idx);
-                    const_cast<Molecule&>(molecules[idx]).blobId = newId;
-                }
+void LavaLamp::rebuildBlobsPaddingBased() {
+    const int N = (int)molecules.size();
+    if (N == 0) { blobs.clear(); return; }
+
+    // Union-Find
+    std::vector<int> parent(N);
+    std::iota(parent.begin(), parent.end(), 0);
+    auto findp = [&](int a) {
+        int r = a;
+        while (parent[r] != r) r = parent[r];
+        while (parent[a] != a) { int p = parent[a]; parent[a] = r; a = p; }
+        return r;
+    };
+    auto unite = [&](int a, int b) {
+        a = findp(a); b = findp(b); if (a == b) return;
+        parent[b] = a;
+    };
+
+    // edge rule: dist <= (ri + rj) + linkPaddingFraction * (pi + pj)
+    for (int i = 0; i < N; ++i) {
+        const Molecule& A = molecules[i];
+        for (int j = i+1; j < N; ++j) {
+            const Molecule& B = molecules[j];
+            float dx = B.position.x - A.position.x;
+            float dy = B.position.y - A.position.y;
+            float dist2 = dx*dx + dy*dy;
+
+            float thr = (A.radius + B.radius) + linkPaddingFraction * (A.padding + B.padding);
+            if (dist2 <= thr*thr) {
+                unite(i, j);
             }
         }
-        ++it;
     }
+
+    // build blobs map
+    blobs.clear();
+    std::unordered_map<int,int> rootToBlobId;
+    int nextId = 0;
+    for (int i = 0; i < N; ++i) {
+        int r = findp(i);
+        auto it = rootToBlobId.find(r);
+        int bid;
+        if (it == rootToBlobId.end()) {
+            bid = nextId++;
+            rootToBlobId[r] = bid;
+            blobs[bid] = Blob{ bid };
+        } else {
+            bid = it->second;
+        }
+        blobs[bid].members.push_back(i);
+        molecules[i].blobId = bid;
+    }
+
+    // compute center & radius per blob
+    for (auto& kv : blobs) {
+        accumulateCenterAndRadius(kv.second, molecules);
+    }
+}
+
+void LavaLamp::updateClusters() {
+    // Recompute clusters entirely by padding proximity each frame
+    rebuildBlobsPaddingBased();
 }
 
 void LavaLamp::update(float dt) {

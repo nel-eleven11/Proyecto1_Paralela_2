@@ -73,6 +73,57 @@ void Renderer::drawLampLight() {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 }
 
+void Renderer::drawBlobFill(const LavaLamp& lamp) {
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // Slightly lighter than molecule colors: mix with white (weight ~0.35)
+    auto lighten = [](RGB c)->RGB{
+        auto L = [](uint8_t a, uint8_t b, float t){
+            return (uint8_t)std::round((1.0f - t) * a + t * b);
+        };
+        return { L(c.r, 255, 0.35f), L(c.g, 255, 0.35f), L(c.b, 255, 0.35f) };
+    };
+
+    const auto& mols  = lamp.getMolecules();
+    const auto& blobs = lamp.getBlobs();
+
+    for (const auto& kv : blobs) {
+        const Blob& B = kv.second;
+        if (B.members.size() < 2) continue; // need at least 2 to show fill
+
+        // Base color from palette using blob center coordinate as seed
+        float u = std::fmod(std::abs(B.center.x * 0.005f + B.center.y * 0.003f), 1.0f);
+        RGB base = pickFromPalette(palette, u);
+        RGB col  = lighten(base);
+
+        // Slight alpha for soft union of expanded discs
+        Uint8 A = 120;
+
+        SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, A);
+
+        for (auto idx : B.members) {
+            const Molecule& m = mols[idx];
+
+            // Expanded radius = radius + 50% of padding so that visible fill appears
+            float R = std::max(1.0f, m.radius + 0.4f * m.padding);
+            int   ri = (int)std::round(R);
+
+            int cx = (int)std::round(m.position.x);
+            int cy = (int)std::round(m.position.y);
+
+            // draw filled circle 
+            for (int y = -ri; y <= ri; ++y) {
+                int span = (int)std::floor(std::sqrt((double)ri*ri - (double)y*y));
+                int py = cy + y;
+                if (py < 0 || py >= height) continue;
+                int x0 = std::max(0, cx - span);
+                int x1 = std::min(width - 1, cx + span);
+                SDL_RenderDrawLine(renderer, x0, py, x1, py);
+            }
+        }
+    }
+}
+
 void Renderer::drawMolecule(const Molecule& m, const LavaLamp& lamp) {
     const auto& blobs = lamp.getBlobs();
     RGB baseColor{200,60,60};
@@ -128,6 +179,7 @@ void Renderer::drawMolecule(const Molecule& m, const LavaLamp& lamp) {
 void Renderer::render(const LavaLamp& lamp) {
     drawBackground(lamp.getHeight());
     drawLampLight();
+    drawBlobFill(lamp);
     for (const auto& mol : lamp.getMolecules()) drawMolecule(mol, lamp);
 }
 

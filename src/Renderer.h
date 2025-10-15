@@ -42,6 +42,7 @@ private:
 
     void drawBackground(int h);
     void drawLampLight();
+    void drawBlobFill(const LavaLamp& lamp);
     void drawMolecule(const Molecule& m, const LavaLamp& lamp);
     void nextPalette();
 };

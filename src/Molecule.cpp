@@ -2,7 +2,7 @@
 #include <cmath>
 
 Molecule::Molecule(float x, float y, float initialTemp, float m)
-    : position(x, y), velocity(0, 0), temperature(initialTemp), mass(m) {
+    : position(x, y), velocity(0, 0), temperature(initialTemp), mass(m), padding(0.0f) {
     volume = BASE_VOLUME * (1.0f + THERMAL_EXPANSION_COEFF * temperature);
     radius = std::sqrt(volume) * 8.0f;
 }

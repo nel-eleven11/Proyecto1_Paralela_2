@@ -18,6 +18,7 @@ public:
     float volume;
     float mass;
     float radius;
+    float padding;
     int   blobId = -1;
 
     Molecule(float x, float y, float initialTemp, float m);
