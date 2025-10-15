@@ -21,8 +21,8 @@ public:
 
     bool isRunning() const { return running; }
     void handleEvents();
+    void update(float dt);
 
-    // Light & palette controls
     void setLightIntensity(float k) { lightIntensity = k; }
     void setPalette(PaletteKind p)  { palette = p; }
 
@@ -32,12 +32,18 @@ private:
     int width, height;
     bool running;
 
-    float       lightIntensity = 0.6f;     // 0..1 (not too strong)
+    float       lightIntensity = 0.6f;
     PaletteKind palette       = PaletteKind::RED;
+
+    bool  bgWhite = false;
+    bool  autoCycle = false;
+    float autoCycleInterval = 1.0f;
+    float autoCycleTimer = 0.0f;
 
     void drawBackground(int h);
     void drawLampLight();
     void drawMolecule(const Molecule& m, const LavaLamp& lamp);
+    void nextPalette();
 };
 
 #endif
