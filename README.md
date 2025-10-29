@@ -1,129 +1,157 @@
-# Lava Lamp Screensaver (C++)
+# Screensaver OpenMP — UVG
 
-Simulación tipo *lámpara de lava* en SDL2 con partículas y clusters. El flujo reproduce un ciclo estable: **subida por el centro caliente**, **desviación en la parte superior hacia los lados**, **descenso por rampas laterales** y **reencauce hacia el centro**.
-
-> Este README documenta la versión con **foco cilíndrico estático** (calor mayor cerca del eje vertical) y controles de paleta/fondo.
+Visualizador de partículas con líneas entre puntos cercanos. Tiene **dos modos**: secuencial (SEQ) y paralelo (PAR usando OpenMP). La meta del paralelo es **acelerar la construcción de aristas** (líneas) cuando el radio de conexión es razonable y hay muchas partículas.
 
 ---
 
-## Demo rápida
+## 🧱 Estructura del proyecto
 
-Compilar:
+```
+include/
+  App.h
+  Args.h
+  Color.h
+  Particle.h
+  Timer.h
+src/
+  App.cpp
+  Args.cpp
+  Color.cpp
+  Particle.cpp
+  Timer.cpp
+  main.cpp
+CMakeLists.txt
+```
+
+---
+
+## 🔧 Compilación
+
+Requisitos (Linux/WSL recomendado):
+- CMake ≥ 3.16
+- g++ (C++17)
+- SDL2 (headers y libs). En Debian/Ubuntu: `sudo apt install libsdl2-dev`
+- OpenMP (opcional pero recomendado). En g++ viene con `-fopenmp`
+
+Comandos:
 
 ```bash
+rm -rf build
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-Ejecutar:
+> 💡 Si tu toolchain tiene OpenMP, CMake lo detecta y compila con soporte PAR automáticamente. Si no, el binario funciona igual, pero el modo `--par` caerá internamente a SEQ.
+
+---
+
+## ▶️ Ejecución
+
+Ejemplos:
 
 ```bash
-./build/lavalamp -n 260 -w 1024 -h 768 -L 0.6 -p red
+# Secuencial (por defecto)
+./build/omp_screensaver -n 1200 -r 90 -s 1.0 --seq
+
+# Paralelo (OpenMP)
+./build/omp_screensaver -n 1200 -r 90 -s 1.0 --par
+
+# Paralelo forzando hilos (si quieres)
+./build/omp_screensaver -n 1600 -r 60 -s 1.0 --par --threads 8
 ```
 
-Parámetros principales:
-- `-n` cantidad de moléculas (partículas base).
-- `-w` ancho de ventana (mín. 640).
-- `-h` alto de ventana (mín. 480).
-- `-L` intensidad de luz de fondo [0..1].
-- `-p` paleta (`red`, `orange`, `green`, `blue`, `purple`, `rainbow`).
+Parámetros útiles:
+- `-n <int>`: número de partículas. (def. 400)
+- `-r <float>`: radio de conexión. (def. 120)
+- `-s <float>`: velocidad base de partículas. (def. 1.0)
+- `--seq` / `--par`: modo secuencial o paralelo.
+- `--threads <K>`: fija K hilos de OpenMP (opcional).
+- `--seed <int>`: semilla RNG (opcional).
+- `--bench <0/1>`: 1 = no dibuja, solo calcula (útil para medir cómputo puro).
 
 ---
 
-## Controles en tiempo real
+## 🎮 Controles en tiempo real
 
-- `C` → cambia a la siguiente **paleta**.
-- `A` → alterna **auto‑cambio de paleta** on/off.
-- `Q` → hace **más rápido** el auto‑cambio.
-- `E` → hace **más lento** el auto‑cambio.
-- `B` → alterna **fondo** entre negro/blanco.
-- `Esc` → salir.
+- `ESC`: salir
+- `SPACE`: pausar / continuar
+- `F1`..`F4`: paletas (Neon, Sunset, Aqua, Candy)
+- `C`: **Auto-cambio** de paleta ON/OFF (activado en esta versión)
+- `R`: rotación del enjambre (OFF → CW → CCW → OFF)
+- `↑ / ↓`: subir/bajar radio
+- `← / →`: bajar/subir velocidad
+- `B`: fondo negro ↔ blanco
 
----
-
-## ¿Qué hay bajo el capó?
-
-### Flujo general
-1. **Faro de calor central**: un *cilindro vertical estático* centrado en la pantalla. La temperatura depende casi sólo de la **distancia horizontal al eje**; cuanto más cerca del eje, más caliente. Entre un **tope** y un **fondo** del cilindro se aplica calor, conservando la forma fija.
-2. **Subida por convección**: las partículas dentro de la columna reciben empuje vertical. Muy cerca del eje hay un refuerzo para romper la inercia.
-3. **Techo curvo**: en la parte superior hay un “arco” que desvía el flujo a izquierda/derecha y amortigua la subida.
-4. **Bajada lateral**: en los bordes laterales se empuja **hacia abajo** y un poco **hacia el centro** para que el material vuelva a la zona caliente.
-5. **No‑caída por el centro**: si una partícula intenta **bajar** por el eje, se le aplica un empuje lateral para obligarla a tomar las rampas.
-6. **Brillo por temperatura**: el color base depende de la paleta y el **brillo** se escala con el exceso de temperatura de cada partícula respecto al entorno; cerca del foco se ve más luminoso.
-
-### Archivos clave
-- `src/Molecule.*` – Partículas individuales (posición, velocidad, temperatura, volumen/radio).
-- `src/Blob.*` – Clusters suaves para dar aspecto de masas.
-- `src/LavaLamp.*` – Física del flujo, foco cilíndrico, techo, rampas, colisiones y *spawning* en el centro.
-- `src/Renderer.*` – SDL2, paletas, luz de fondo, brillo dependiente del calor y controles.
-
-### Parámetros relevantes (resumen)
-> Todos están en `LavaLamp.h` y se pueden ajustar para cambiar el carácter del flujo.
-
-- **Columna**: `columnHalfWidth`, `columnEdgeFeather`, `columnTopFactor`, `columnBottomFactor`, `columnHeatBonus`.
-- **Subida central**: `updraftPush`, `centerLiftMinUp`, `hotJitterX`.
-- **Techo**: `archBaseYFactor`, `archSlope`, `archPushSide`, `archPushDown`.
-- **Rampas**: `rampStartYFactor`, `basinYFactor`, `rampHalfSpanX`, `rampCurvePower` (parabólico), `rampCenterKick`.
-- **No‑caída centro**: `centerNoFallSidePush`.
-- **Salida superior**: `topOutflowSidePush`.
-- **Laterales**: `sideDownPush`, `sideBandWidth`.
-- **Render**: paletas en `Palette.*`, luz con `Renderer::setLightIntensity` y brillo ligado al calor.
+La barra de título muestra: modo (PAR/SEQ), N, r, velocidad, auto-ciclo (C), FPS y si está en **BENCH**.
 
 ---
 
-## Instalación de dependencias (Ubuntu/WSL)
+## 🧠 ¿Qué se paraleliza?
 
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake libsdl2-dev
-```
+- **Construcción de aristas (“edges”)**: por cada celda de un grid espacial revisamos pares de partículas **solo** dentro de la misma celda y sus **4** vecinas (derecha, abajo-derecha, abajo, abajo-izquierda).  
+- En **PAR**, **cada hilo** procesa un subconjunto de celdas y guarda sus aristas en un **vector local**; al final **se concatenan** todos los vectores. Así **evitamos peleas** por el mismo `edges_` y escalamos mejor.
 
-En WSL, usa un servidor X (p. ej. X410, GWSL o VcXsrv) y exporta `DISPLAY` si es necesario:
-```bash
-export DISPLAY=:0
-```
+> Movimiento + rotación de partículas se hace en bloque (secuencial) para mantener el código simple; el cuello de botella real está en la detección de vecinos (no en el movimiento).
 
 ---
 
-## Ejemplos de uso
+## 🧭 Cómo funciona el grid (resumen rápido)
 
-Más partículas y resolución FullHD:
-```bash
-./build/lavalamp -n 600 -w 1920 -h 1080 -L 0.7 -p orange
-```
+- Partimos la pantalla en una **malla** de celdas cuadradas de tamaño `cellSize ≈ radius`.  
+- Mapeamos cada partícula a su celda `(cx, cy)`.  
+- Construimos tres arreglos planos:
+  - `cellCounts_`: cuántas partículas cayeron en cada celda.
+  - `cellOffsets_`: prefijos acumulados para saber dónde empieza cada celda dentro de `cellItems_`.
+  - `cellItems_`: índices de partículas **ordenados por celda**.
 
-Modo presentación con auto‑cambio de paleta: pulsa `A` y luego ajusta la velocidad con `Q`/`E`.
-
-Fondo blanco para contraste fotográfico: pulsa `B`.
-
----
-
-## Estructura del proyecto
-
-```
-.
-├── CMakeLists.txt
-├── src
-│   ├── main.cpp
-│   ├── Molecule.{h,cpp}
-│   ├── Blob.{h,cpp}
-│   ├── Palette.{h,cpp}
-│   ├── LavaLamp.{h,cpp}
-│   └── Renderer.{h,cpp}
-└── README.md
-```
+Esto permite, para una celda dada, recorrer sus partículas como un **segmento** contiguo de `cellItems_` en O(1).
 
 ---
 
-## Ajustes recomendados
+## 📈 Cuándo se nota el speedup
 
-- Si el flujo no alcanza el techo, aumenta `updraftPush` o `columnHeatBonus`.
-- Si suben por los lados, baja `outsideUpwardDampen` y sube `sideDownPush`.
-- Si se atascan arriba, incrementa `topOutflowSidePush`.
-- Si aún caen por el centro, sube `centerNoFallSidePush`.
+- Se nota **más** cuando `radius` es **medio/pequeño** (por ejemplo `r ≈ 40–80` con `n` alto).  
+- Si el radio es **muy grande**, casi todas las partículas se “ven”, así que el trabajo vuelve a ser casi O(N²) y los beneficios del grid se diluyen (PAR ayuda menos).  
+- Si `n` es muy bajo, el overhead de paralelizar puede opacar el beneficio.
+
+> En nuestras pruebas: con `n ≥ 1200` y `r ≈ 50–90`, PAR suele superar a SEQ, especialmente si **no** estamos limitados por VSync o por el **render**.
 
 ---
 
-## Licencia
+## 🧩 División de trabajo (sugerida para el informe)
 
-Uso académico/educativo.
+- **Joaquín – Movimiento & Grid**
+  - Lógica de `Particle::update` y rebotes.
+  - Construcción del grid (`rebuildGridSequential`).
+  - Verificación de offsets y layout de `cellItems_`.
+
+- **Nelson – Detección de vecinos & Aristas (SEQ)**
+  - Búsqueda de vecinos por celda y 4 vecinas.
+  - Cálculo de distancia y peso `w = 1 - d²/r²`.
+  - Limpieza y reserva de `edges_` + mejoras de legibilidad (nombres descriptivos).
+
+- **Gabriel – Paralelización (PAR) & UX del demo**
+  - División por celdas con OpenMP, “bolsitas por hilo” y merge final.
+  - Flags `--par/--seq/--threads` y controles (`C`, `B`, `←/→`, `↑/↓`, `R`).
+  - Pruebas con distintos `n`, `r` y documentación.
+
+---
+
+## ❓Preguntas guía (resumen para el profe)
+
+- **¿Qué paralelizamos?** La construcción de aristas por celda (misma + 4 vecinas), repartiendo celdas entre hilos y acumulando resultados localmente para luego fusionarlos.
+- **Obstáculos al paralelizar:** evitar contención en `edges_`, balancear trabajo (algunas celdas tienen más puntos), mantener código entendible.
+- **Decisión de diseño:** mantener el movimiento simple y atacar el cuello real (vecinos). Paralelismo **coarse-grain** por celdas + **concatenación** final para mínima sincronización.
+
+---
+
+## 🛠️ Troubleshooting rápido
+
+- **`stray '#pragma'` o errores con OpenMP:** asegúrate de compilar con soporte (`-fopenmp`). Con CMake debería verse en el log “OpenMP found”.
+- **`undefined reference to App::run()`**: suele ser porque no se compiló/ linkeó `App.cpp`. Revisa que esté en `add_executable(...)` del `CMakeLists.txt`.
+- **Se congela con `--bench 1`:** en bench no dibuja; si bloquea, verifica el loop o argumentos (usa `--bench 0` para el demo visual).
+
+---
+
+## 📜 Licencia y créditos
+Proyecto académico para **UVG – Computación Paralela y Distribuida**. Hecho por: **Gabriel, Joaquín y Nelson**.
