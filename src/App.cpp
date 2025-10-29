@@ -160,7 +160,254 @@ void App::rebuildGridSequential() { // se arma el grid
     }
 }
 
+// versión sequencial
+void App::buildEdgesSeq(float dt) {
+    const int   winW   = cfg_.width, winH = cfg_.height;
+    const float r2     = radius2_;
 
+    // Por si usamos R nada mas
+    const float s      = (rotationSign_ ? std::sin(rotationSign_ * rotationSpeed_ * dt) : 0.f);
+    const float c      = (rotationSign_ ? std::cos(rotationSign_ * rotationSpeed_ * dt) : 1.f);
+
+    for (auto& p : particles_) {
+        p.update(dt, winW, winH, cfg_.speed);
+        if (rotationSign_) p.rotateAroundSC(winW*0.5f, winH*0.5f, s, c);
+    }
+
+    rebuildGridSequential();
+
+    // limpieza inicial
+    edges_.clear();
+    edges_.reserve((size_t)cfg_.n * 8);
+
+    // revisar cada celda con ella misma y con 4 vecinas (derecha, abajo-der, abajo, abajo-izq)
+    const int OFFSETX[5] = {0, 1, 1, 0, -1};
+    const int OFFSETY[5] = {0, 0, 1, 1,  1};
+
+    const int totalCells = gw_ * gh_;
+    for (int cellIdFlat = 0; cellIdFlat < totalCells; ++cellIdFlat) {
+        // coordenadas (x,y) de la celda actual
+        const int cellX = cellIdFlat % gw_;
+        const int cellY = cellIdFlat / gw_;
+
+        const int cellStart = cellOffsets_[cellIdFlat];
+        const int cellEnd   = cellOffsets_[cellIdFlat + 1];
+
+        // Aca recorre los OFFSET
+        for (int k = 0; k < 5; ++k) {
+            const int neighborX = cellX + OFFSETX[k];
+            const int neighborY = cellY + OFFSETY[k];
+
+            // validación de bordes
+            if (neighborX < 0 || neighborX >= gw_ || neighborY < 0 || neighborY >= gh_) continue;
+
+            const int neighborId    = neighborY * gw_ + neighborX;
+            const int neighborStart = cellOffsets_[neighborId];
+            const int neighborEnd   = cellOffsets_[neighborId + 1];
+
+            if (k == 0) {
+                for (int idxInCurrentA = cellStart; idxInCurrentA < cellEnd; ++idxInCurrentA) {
+                    for (int idxInCurrentB = idxInCurrentA + 1; idxInCurrentB < cellEnd; ++idxInCurrentB) {
+                        const int particleAIdx = cellItems_[idxInCurrentA];
+                        const int particleBIdx = cellItems_[idxInCurrentB];
+
+                        const float dx = particles_[particleAIdx].x - particles_[particleBIdx].x;
+                        const float dy = particles_[particleAIdx].y - particles_[particleBIdx].y;
+                        const float d2 = dx*dx + dy*dy;
+
+                        if (d2 <= r2) {
+                            edges_.push_back({ particleAIdx, particleBIdx, 1.f - d2/r2 }); // se crea la arista con la intensidad
+                        }
+                    }
+                }
+            } else {
+                // celdas vecinas todos contra todos
+                for (int idxInCurrent = cellStart; idxInCurrent < cellEnd; ++idxInCurrent) {
+                    const int particleAIdx = cellItems_[idxInCurrent];
+                    for (int idxInNeighbor = neighborStart; idxInNeighbor < neighborEnd; ++idxInNeighbor) {
+                        const int particleBIdx = cellItems_[idxInNeighbor];
+                        const float dx = particles_[particleAIdx].x - particles_[particleBIdx].x;
+                        const float dy = particles_[particleAIdx].y - particles_[particleBIdx].y;
+                        const float d2 = dx*dx + dy*dy; // distancia^2
+                        if (d2 <= r2) {
+                            edges_.push_back({ particleAIdx, particleBIdx, 1.f - d2/r2 });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// versión paralela
+void App::buildEdgesPar(float dt) {
+
+
+    const int   winW = cfg_.width, winH = cfg_.height;
+    const float r2   = radius2_;
+
+    // Solo si usa R
+    const float s    = (rotationSign_ ? std::sin(rotationSign_ * rotationSpeed_ * dt) : 0.f);
+    const float c    = (rotationSign_ ? std::cos(rotationSign_ * rotationSpeed_ * dt) : 1.f);
+
+    for (auto& p : particles_) {
+        p.update(dt, winW, winH, cfg_.speed);
+        if (rotationSign_) p.rotateAroundSC(winW*0.5f, winH*0.5f, s, c);
+    }
+
+    rebuildGridSequential();
+
+    const int OFFSETX[5] = {0, 1, 1, 0, -1}; // misma, der, ab-der, ab, ab-izq
+    const int OFFSETY[5] = {0, 0, 1, 1,  1};
+
+    const int totalCells = gw_ * gh_;
+
+    // aca empezamos a paralelizar
+    std::vector<std::vector<Edge>> perThread;
+    int numThreads = 1;
+
+    #pragma omp parallel
+    {
+        // descubrimos cuántos hilos hay
+        #pragma omp single
+        {
+            numThreads = omp_get_num_threads();
+            perThread.resize(std::max(1, numThreads));
+        }
+
+        // cada hilo trabaja en su vector local
+        int tid = 0;
+        #ifdef _OPENMP
+            tid = omp_get_thread_num();
+        #endif
+        auto& localEdges = perThread[tid];
+        localEdges.clear();
+        localEdges.reserve((size_t)cfg_.n * 4 / std::max(1, numThreads) + 256);
+
+        // repartimos las celdas; guided ayuda cuando algunas celdas tienen más partículas que otras
+        #pragma omp for schedule(guided)
+        for (int cellIdFlat = 0; cellIdFlat < totalCells; ++cellIdFlat) {
+
+            // coordenadas (x,y) de la celda actual
+            const int cellX = cellIdFlat % gw_;
+            const int cellY = cellIdFlat / gw_;
+
+            // rango [cellStart, cellEnd) dentro de cellItems_ para esta celda
+            const int cellStart = cellOffsets_[cellIdFlat];
+            const int cellEnd   = cellOffsets_[cellIdFlat + 1];
+
+            // revisar 5 destinos: misma celda y 4 vecinas (sin duplicar)
+            for (int k = 0; k < 5; ++k) {
+                const int neighborX = cellX + OFFSETX[k];
+                const int neighborY = cellY + OFFSETY[k];
+
+                // si la vecina se sale, la saltamos
+                if (neighborX < 0 || neighborX >= gw_ || neighborY < 0 || neighborY >= gh_) continue;
+
+                const int neighborId    = neighborY * gw_ + neighborX;
+                const int neighborStart = cellOffsets_[neighborId];
+                const int neighborEnd   = cellOffsets_[neighborId + 1];
+
+                if (k == 0) {
+                    // MISMA celda: combinaciones sin repetir (B empieza después de A)
+                    for (int idxInCurrentA = cellStart; idxInCurrentA < cellEnd; ++idxInCurrentA) {
+                        for (int idxInCurrentB = idxInCurrentA + 1; idxInCurrentB < cellEnd; ++idxInCurrentB) {
+                            const int particleAIdx = cellItems_[idxInCurrentA]; // índice real en particles_
+                            const int particleBIdx = cellItems_[idxInCurrentB];
+
+                            const float dx = particles_[particleAIdx].x - particles_[particleBIdx].x;
+                            const float dy = particles_[particleAIdx].y - particles_[particleBIdx].y;
+                            const float d2 = dx*dx + dy*dy; // distancia^2
+
+                            if (d2 <= r2) {
+                                const float weight = 1.f - d2/r2; // más cerca => más intenso
+                                localEdges.push_back({ particleAIdx, particleBIdx, weight });
+                            }
+                        }
+                    }
+                } else {
+                    // CELDA vecina: todos contra todos entre actual y vecina
+                    for (int idxInCurrent = cellStart; idxInCurrent < cellEnd; ++idxInCurrent) {
+                        const int particleAIdx = cellItems_[idxInCurrent];
+                        for (int idxInNeighbor = neighborStart; idxInNeighbor < neighborEnd; ++idxInNeighbor) {
+                            const int particleBIdx = cellItems_[idxInNeighbor];
+
+                            const float dx = particles_[particleAIdx].x - particles_[particleBIdx].x;
+                            const float dy = particles_[particleAIdx].y - particles_[particleBIdx].y;
+                            const float d2 = dx*dx + dy*dy; // distancia 
+
+                            if (d2 <= r2) {
+                                const float weight = 1.f - d2/r2;
+                                localEdges.push_back({ particleAIdx, particleBIdx, weight });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    // se mergean todos los hilos
+    size_t totalEdges = 0;
+    for (auto& v : perThread) totalEdges += v.size();
+
+    edges_.clear();
+    edges_.reserve(totalEdges);
+    for (auto& v : perThread) {
+        edges_.insert(edges_.end(), v.begin(), v.end());
+    }
+}
+
+
+
+void App::update(float dt) {
+
+    if (autoCycle_) {
+        cycleTimer_ += dt;
+        if (cycleTimer_ >= cycleEvery_) {
+            cycleTimer_ = 0.f;
+            int p = static_cast<int>(palette_);
+            p = (p + 1) % 4;
+            palette_ = static_cast<Palette>(p);
+        }
+    }
+    globalAngle_ += rotationSign_ * rotationSpeed_ * dt;
+    if (globalAngle_ > 6.28318f)  globalAngle_ -= 6.28318f;
+    if (globalAngle_ < -6.28318f) globalAngle_ += 6.28318f;
+
+    if (cfg_.parallel) buildEdgesSeq(dt);
+    else               buildEdgesPar(dt);
+
+    setWindowTitle(timer_.fps());
+}
+
+void App::render() {
+    if (cfg_.bench) return;
+
+    if (g_whiteBg) SDL_SetRenderDrawColor(renderer_, 245, 245, 247, 255);
+    else           SDL_SetRenderDrawColor(renderer_,  10,  10,  12, 255);
+    SDL_RenderClear(renderer_);
+
+    // líneas: color/alpha en función de la cercanía
+    for (const auto& e : edges_) {
+        const auto& a = particles_[e.a];
+        const auto& b = particles_[e.b];
+
+        SDL_Color c = paletteColor(palette_, e.w);
+        Uint8 alpha = static_cast<Uint8>(40 + 200 * e.w);
+        SDL_SetRenderDrawColor(renderer_, c.r, c.g, c.b, alpha);
+        SDL_RenderDrawLine(renderer_, (int)a.x, (int)a.y, (int)b.x, (int)b.y);
+    }
+
+    for (const auto& p : particles_) {
+        SDL_SetRenderDrawColor(renderer_, p.r, p.g, p.b, 220);
+        SDL_Rect r{ (int)p.x-1, (int)p.y-1, 3, 3 };
+        SDL_RenderFillRect(renderer_, &r);
+    }
+
+    SDL_RenderPresent(renderer_);
+}
 
 void App::run() {
     bool running = true;
