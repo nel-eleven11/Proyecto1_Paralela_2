@@ -39,6 +39,9 @@ bool parseArgs(int argc, char** argv, Config& out, std::string& error) {
             int b=0; if(!readInt(argv[++i], b)) { error="bench inválido"; return false; }
             out.bench = (b!=0);
         }
+        else if (a=="--novsync") {
+            out.novsync = true;
+        }
         else {
             std::ostringstream oss; oss << "Flag no reconocida: " << a;
             error = oss.str(); return false;
@@ -64,10 +67,11 @@ Flags:
   --seed <int>                semilla RNG (opcional)
   --threads <K>               fuerza K hilos en OpenMP (opcional)
   --bench <0/1>               1 = NO dibuja (mide solo cómputo)
+  --novsync                   Desactiva VSync (permite FPS > 60)
 
 Controles:
-  ↑/↓ radio, Z/X velocidad, F1..F4 paletas,
-  C auto-ciclo (ON/OFF), [ y ] velocidad de cambio,
+  ↑/↓ radio, ←/→ velocidad, F1..F4 paletas,
+  C auto-ciclo (ON/OFF), B cambia fondo,
   R rota (OFF → CW → CCW), Espacio pausa, ESC salir
 )" << std::endl;
 }

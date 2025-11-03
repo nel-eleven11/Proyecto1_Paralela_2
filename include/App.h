@@ -25,6 +25,9 @@ private:
     void buildEdgesSeq(float dt);
 
     // versión paralela
+#ifdef USE_OPENMP
+    void rebuildGridParallel(int maxThreads);
+#endif
     void buildEdgesPar(float dt);
 
     void render();
@@ -46,6 +49,11 @@ private:
     std::vector<int>   cellCounts_;
     std::vector<int>   cellOffsets_;
     std::vector<int>   cellItems_;
+#ifdef USE_OPENMP
+    std::vector<int> particleCellIds_;
+    std::vector<int> perThreadCounts_;
+    std::vector<int> perThreadOffsets_;
+#endif
 
     Timer timer_;
 
@@ -60,5 +68,7 @@ private:
     float   cycleEvery_  = 2.0f;
     float   cycleTimer_  = 0.0f;
 
-    float radius2_  = 0.0f;
+    float radius2_     = 0.0f;
+    float invRadius2_  = 0.0f;
 };
+

@@ -11,6 +11,7 @@ struct Config {
     unsigned int seed = 0;
     int   threads = 0;
     bool  bench   = false;
+    bool  novsync = false;
 };
 
 bool parseArgs(int argc, char** argv, Config& out, std::string& error);
