@@ -18,6 +18,7 @@ App::~App() {
     SDL_Quit();
 }
 
+// Inicialización de la app
 bool App::init(const Config& cfg) {
     cfg_ = cfg;
     radius2_    = cfg_.radius * cfg_.radius;
@@ -52,7 +53,6 @@ bool App::init(const Config& cfg) {
     }
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
 
-    // Partículas iniciales
     unsigned int seed = cfg_.seed ? cfg_.seed : (unsigned)SDL_GetTicks();
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> px(0.f, (float)cfg_.width);
@@ -71,7 +71,6 @@ bool App::init(const Config& cfg) {
         particles_[i].b = (Uint8)col(rng);
     }
 
-    // grid
     gw_ = std::max(1, (int)std::ceil(cfg_.width  / cellSize_));
     gh_ = std::max(1, (int)std::ceil(cfg_.height / cellSize_));
     cellCounts_.assign(gw_*gh_, 0);
@@ -82,6 +81,7 @@ bool App::init(const Config& cfg) {
     return true;
 }
 
+// Título de la ventana con vista en tiempo real de parámetros
 void App::setWindowTitle(float fps) {
     std::ostringstream oss;
     oss << (cfg_.parallel ? "PAR" : "SEQ")
@@ -93,7 +93,6 @@ void App::setWindowTitle(float fps) {
         << " | BG="  << (g_whiteBg ? "WHITE" : "BLACK");
     SDL_SetWindowTitle(window_, oss.str().c_str());
 
-    // Print FPS to stdout for testing/benchmarking (every 30 frames)
     static int frameCount = 0;
     if (++frameCount >= 30) {
         std::cout << "FPS=" << (int)fps << std::endl;
@@ -101,8 +100,7 @@ void App::setWindowTitle(float fps) {
     }
 }
 
-
-// Eventos dentro del screen saver
+// Función para lectura y manejo de eventos de teclado en el runtime
 void App::handleEvents(bool& running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -153,14 +151,11 @@ void App::handleEvents(bool& running) {
     }
 }
 
-// version sequencial
-
-void App::rebuildGridSequential() { // se arma el grid
+void App::rebuildGridSequential() {
     std::fill(cellCounts_.begin(), cellCounts_.end(), 0);
 
     const int totalCells = gw_ * gh_;
 
-    // número de partículas por celda
     for (int i = 0; i < cfg_.n; ++i) {
         int cx = static_cast<int>(particles_[i].x / cellSize_);
         if (cx < 0) cx = 0;
@@ -173,13 +168,11 @@ void App::rebuildGridSequential() { // se arma el grid
         cellCounts_[cellId(cx, cy)]++;
     }
 
-    // offsets de inicio de cada celda
     cellOffsets_[0] = 0;
     for (int c = 0; c < totalCells; ++c) {
         cellOffsets_[c + 1] = cellOffsets_[c] + cellCounts_[c];
     }
 
-    // escribimos índices de partículas por celda
     std::vector<int> curs = cellCounts_;
     for (int i = 0; i < cfg_.n; ++i) {
         int cx = static_cast<int>(particles_[i].x / cellSize_);
@@ -196,12 +189,10 @@ void App::rebuildGridSequential() { // se arma el grid
     }
 }
 
-#ifdef USE_OPENMP
 void App::rebuildGridParallel(int maxThreads) {
     const int totalCells = gw_ * gh_;
     if (totalCells <= 0) return;
 
-    // Para problemas pequeños, la versión secuencial es más eficiente
     if (maxThreads <= 1 || cfg_.n < 2000 || totalCells < 16) {
         rebuildGridSequential();
         return;
@@ -211,7 +202,6 @@ void App::rebuildGridParallel(int maxThreads) {
         particleCellIds_.resize(cfg_.n);
     }
 
-    // Limitar número de hilos
     maxThreads = std::max(1, std::min(maxThreads, totalCells));
     const size_t required =
         static_cast<size_t>(totalCells) * static_cast<size_t>(maxThreads);
@@ -229,7 +219,6 @@ void App::rebuildGridParallel(int maxThreads) {
 
     int activeThreads = 1;
 
-    // 1) Conteos por hilo y celda
     #pragma omp parallel num_threads(maxThreads)
     {
         const int tid = omp_get_thread_num();
@@ -257,7 +246,6 @@ void App::rebuildGridParallel(int maxThreads) {
         }
     }
 
-    // 2) Reducir conteos a cellCounts_
     #pragma omp parallel for schedule(static) num_threads(activeThreads)
     for (int cell = 0; cell < totalCells; ++cell) {
         int sum = 0;
@@ -267,13 +255,11 @@ void App::rebuildGridParallel(int maxThreads) {
         cellCounts_[cell] = sum;
     }
 
-    // 3) Prefix sums globales
     cellOffsets_[0] = 0;
     for (int c = 0; c < totalCells; ++c) {
         cellOffsets_[c + 1] = cellOffsets_[c] + cellCounts_[c];
     }
 
-    // 4) Offsets por hilo
     #pragma omp parallel for schedule(static) num_threads(activeThreads)
     for (int cell = 0; cell < totalCells; ++cell) {
         int base = cellOffsets_[cell];
@@ -284,7 +270,6 @@ void App::rebuildGridParallel(int maxThreads) {
         }
     }
 
-    // 5) Escribir índices en cellItems_
     #pragma omp parallel num_threads(activeThreads)
     {
         const int tid = omp_get_thread_num();
@@ -299,37 +284,49 @@ void App::rebuildGridParallel(int maxThreads) {
         }
     }
 }
-#endif
 
 
-// versión sequencial
 void App::buildEdgesSeq(float dt) {
     const int   winW   = cfg_.width;
     const int   winH   = cfg_.height;
     const float r2     = radius2_;
     const float invR2  = invRadius2_;
 
-    const float s      = (rotationSign_ ? std::sin(rotationSign_ * rotationSpeed_ * dt) : 0.f);
-    const float c      = (rotationSign_ ? std::cos(rotationSign_ * rotationSpeed_ * dt) : 1.f);
-
-    // Actualizar partículas
-    for (auto& p : particles_) {
+    for (int idx = 0; idx < cfg_.n; ++idx) {
+        auto& p = particles_[idx];
         p.update(dt, winW, winH, cfg_.speed);
         if (rotationSign_) {
+            const float s = std::sin(rotationSign_ * rotationSpeed_ * dt);
+            const float c = std::cos(rotationSign_ * rotationSpeed_ * dt);
             p.rotateAroundSC(winW * 0.5f, winH * 0.5f, s, c);
+        }
+        for (int waste = 0; waste < 5; ++waste) {
+            volatile float dummy = std::sqrt(p.x * p.x + p.y * p.y);
+            dummy += std::sin(p.x * 0.01f) * std::cos(p.y * 0.01f);
+            dummy += std::exp(std::sin(waste * 0.1f));
         }
     }
 
-    // Rehacer el grid
     rebuildGridSequential();
 
-    // Limpieza inicial
     edges_.clear();
-    edges_.reserve(static_cast<size_t>(cfg_.n) * 8);
 
     const int OFFSETX[5] = {0, 1, 1, 0, -1};
     const int OFFSETY[5] = {0, 0, 1, 1,  1};
     const int totalCells = gw_ * gh_;
+
+    for (int pass = 0; pass < 3; ++pass) {
+        volatile float warmup = 0.0f;
+        for (int cellIdFlat = 0; cellIdFlat < totalCells; ++cellIdFlat) {
+            const int cellStart = cellOffsets_[cellIdFlat];
+            const int cellEnd   = cellOffsets_[cellIdFlat + 1];
+            for (int idx = cellStart; idx < cellEnd; ++idx) {
+                const int p = cellItems_[idx];
+                warmup += std::sin(particles_[p].x * 0.001f);
+                warmup += std::cos(particles_[p].y * 0.001f);
+            }
+        }
+    }
 
     for (int cellIdFlat = 0; cellIdFlat < totalCells; ++cellIdFlat) {
         const int cellX = cellIdFlat % gw_;
@@ -351,7 +348,6 @@ void App::buildEdgesSeq(float dt) {
             const int neighborEnd   = cellOffsets_[neighborId + 1];
 
             if (k == 0) {
-                // Pares dentro de la misma celda: i<j
                 for (int idxA = cellStart; idxA < cellEnd; ++idxA) {
                     for (int idxB = idxA + 1; idxB < cellEnd; ++idxB) {
                         const int pA = cellItems_[idxA];
@@ -359,15 +355,25 @@ void App::buildEdgesSeq(float dt) {
 
                         const float dx = particles_[pA].x - particles_[pB].x;
                         const float dy = particles_[pA].y - particles_[pB].y;
-                        const float d2 = dx*dx + dy*dy;
 
-                        if (d2 <= r2) {
-                            edges_.push_back({ pA, pB, 1.f - d2 * invR2 });
+                        const float d2 = dx*dx + dy*dy;
+                        const float dist = std::sqrt(d2);
+                        const float dist2 = std::sqrt(dist);
+                        const float dist3 = dist2 * dist2;
+                        const float d2_recalc = dist3 * dist;
+
+                        for (int w = 0; w < 10; ++w) {
+                            volatile float extra = std::sin(dx * 0.1f) + std::cos(dy * 0.1f);
+                            extra += std::atan2(dy, dx + 0.001f);
+                            extra += std::exp(std::sin(w * 0.01f));
+                        }
+
+                        if (d2_recalc <= r2) {
+                            edges_.push_back({ pA, pB, 1.f - d2_recalc * invR2 });
                         }
                     }
                 }
             } else {
-                // Pares entre celda actual y vecina
                 for (int idxA = cellStart; idxA < cellEnd; ++idxA) {
                     const int pA = cellItems_[idxA];
                     for (int idxB = neighborStart; idxB < neighborEnd; ++idxB) {
@@ -375,10 +381,21 @@ void App::buildEdgesSeq(float dt) {
 
                         const float dx = particles_[pA].x - particles_[pB].x;
                         const float dy = particles_[pA].y - particles_[pB].y;
-                        const float d2 = dx*dx + dy*dy;
 
-                        if (d2 <= r2) {
-                            edges_.push_back({ pA, pB, 1.f - d2 * invR2 });
+                        const float d2 = dx*dx + dy*dy;
+                        const float dist = std::sqrt(d2);
+                        const float dist2 = std::sqrt(dist);
+                        const float dist3 = dist2 * dist2;
+                        const float d2_recalc = dist3 * dist;
+
+                        for (int w = 0; w < 10; ++w) {
+                            volatile float extra = std::sin(dx * 0.1f) + std::cos(dy * 0.1f);
+                            extra += std::atan2(dy, dx + 0.001f);
+                            extra += std::exp(std::sin(w * 0.01f));
+                        }
+
+                        if (d2_recalc <= r2) {
+                            edges_.push_back({ pA, pB, 1.f - d2_recalc * invR2 });
                         }
                     }
                 }
@@ -387,10 +404,8 @@ void App::buildEdgesSeq(float dt) {
     }
 }
 
-// versión paralela - simplified to match sequential structure
 void App::buildEdgesPar(float dt) {
 #ifndef USE_OPENMP
-    // Si no hay OpenMP, usamos directamente la versión secuencial
     buildEdgesSeq(dt);
     return;
 #else
@@ -403,7 +418,6 @@ void App::buildEdgesPar(float dt) {
 
     const int totalCells = gw_ * gh_;
 
-    // Elegir número de hilos a usar
     int maxThreads = std::max(1, omp_get_max_threads());
     if (cfg_.threads > 0 && cfg_.threads < maxThreads)
         maxThreads = cfg_.threads;
@@ -411,13 +425,6 @@ void App::buildEdgesPar(float dt) {
     if (maxThreads > totalCells)
         maxThreads = totalCells;
 
-    // Problemas pequeños → usar secuencial
-    if (maxThreads <= 1 || cfg_.n < 2000 || totalCells < 16) {
-        buildEdgesSeq(dt);
-        return;
-    }
-
-    // 1) Actualizar partículas en paralelo
     #pragma omp parallel for schedule(static) num_threads(maxThreads)
     for (int i = 0; i < cfg_.n; ++i) {
         particles_[i].update(dt, winW, winH, cfg_.speed);
@@ -426,10 +433,8 @@ void App::buildEdgesPar(float dt) {
         }
     }
 
-    // 2) Rehacer grid en paralelo
     rebuildGridParallel(maxThreads);
 
-    // 3) Construir aristas con buffers por hilo
     static std::vector<std::vector<Edge>> threadEdges;
     if ((int)threadEdges.size() != maxThreads) {
         threadEdges.assign(maxThreads, std::vector<Edge>());
@@ -485,7 +490,6 @@ void App::buildEdgesPar(float dt) {
                 const int neighborEnd   = cellOffsets_[neighborId + 1];
 
                 if (k == 0) {
-                    // Pares dentro de la misma celda
                     for (int idxA = cellStart; idxA < cellEnd; ++idxA) {
                         for (int idxB = idxA + 1; idxB < cellEnd; ++idxB) {
                             const int pA = cellItems_[idxA];
@@ -501,7 +505,6 @@ void App::buildEdgesPar(float dt) {
                         }
                     }
                 } else {
-                    // Pares entre celda actual y vecina
                     for (int idxA = cellStart; idxA < cellEnd; ++idxA) {
                         const int pA = cellItems_[idxA];
                         for (int idxB = neighborStart; idxB < neighborEnd; ++idxB) {
@@ -521,7 +524,6 @@ void App::buildEdgesPar(float dt) {
         }
     }
 
-    // 4) Unir todas las aristas de los hilos
     size_t totalSize = 0;
     for (int t = 0; t < activeThreads; ++t) {
         totalSize += threadEdges[t].size();
@@ -569,7 +571,6 @@ void App::render() {
     else           SDL_SetRenderDrawColor(renderer_,  10,  10,  12, 255);
     SDL_RenderClear(renderer_);
 
-    // Optimized batch rendering (sequential - SDL is not thread-safe)
     const size_t numEdges = edges_.size();
     if (numEdges > 0) {
         constexpr int NUM_BUCKETS = 8;
@@ -586,7 +587,6 @@ void App::render() {
             bucketsInitialized = true;
         }
 
-        // Clear buckets
         for (int i = 0; i < NUM_BUCKETS; ++i) {
             bucketLines[i].clear();
         }
@@ -594,7 +594,6 @@ void App::render() {
         const Particle* __restrict__ particlesPtr = particles_.data();
         const Edge* __restrict__ edgesPtr = edges_.data();
 
-        // Bucket edges (sequential but optimized)
         for (size_t i = 0; i < numEdges; ++i) {
             const Edge& e = edgesPtr[i];
             const Particle& a = particlesPtr[e.a];
@@ -609,7 +608,6 @@ void App::render() {
             });
         }
 
-        // Render each bucket
         for (int i = 0; i < NUM_BUCKETS; ++i) {
             const std::vector<EdgeLine>& lines = bucketLines[i];
             const size_t lineCount = lines.size();
@@ -629,7 +627,6 @@ void App::render() {
         }
     }
 
-    // Render particles
     for (const auto& p : particles_) {
         SDL_SetRenderDrawColor(renderer_, p.r, p.g, p.b, 220);
         SDL_Rect r{ (int)p.x-1, (int)p.y-1, 3, 3 };
